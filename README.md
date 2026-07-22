@@ -11,6 +11,10 @@ The Convers+ cluster (MCU: NXP **MAC7116**) shows track metadata for USB and CD 
 
 > **Tested on:** Ford **Mondeo MK4 facelift (FL), model years 2011+** — Convers+ cluster, firmware **1412-FL**, VBF partition `CS7T-14C026-CD`. Other cars/versions that use the same Convers+ cluster may work, but are currently **unverified** (see [Compatibility](#compatibility)).
 
+![Convers+ BT Audio screen showing live Bluetooth track title and artist](docs/images/bt-audio-demo.jpg)
+
+*Patched cluster on a Ford Mondeo MK4 FL — the BT Audio screen now shows the live track title ("Stars Will Align") and artist ("Kygo, Imagine Dragons") streamed over Bluetooth.*
+
 ---
 
 ## ⚠️ DISCLAIMER — READ BEFORE YOU DO ANYTHING
