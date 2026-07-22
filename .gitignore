@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# Ford firmware images — NEVER commit these.
+# They are Ford's proprietary code AND your dump may contain your car's VIN
+# and other personal/vehicle data. This project only ships the *tools*; every
+# user patches their OWN firmware dump locally.
+# ---------------------------------------------------------------------------
+*.bin
+*.vbf
+*.hex
+*.s19
+*.s37
+*.mot
+*.eep
+*.eeprom
+dumps/
+firmware/
+obrazy/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
