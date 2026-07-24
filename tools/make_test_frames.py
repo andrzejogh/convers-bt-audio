@@ -101,8 +101,20 @@ def print_frames(seq, cid):
 
 def send_frames(seq, cid, bitrate, loop, gap, stmin):
     import time
-    from PCANBasic import (PCANBasic, PCAN_USBBUS1, PCAN_BAUD_125K, PCAN_BAUD_250K,
-                           PCAN_BAUD_500K, TPCANMsg, PCAN_MESSAGE_STANDARD, PCAN_ERROR_OK)
+    try:
+        from PCANBasic import (PCANBasic, PCAN_USBBUS1, PCAN_BAUD_125K, PCAN_BAUD_250K,
+                               PCAN_BAUD_500K, TPCANMsg, PCAN_MESSAGE_STANDARD, PCAN_ERROR_OK)
+    except ImportError:
+        print("--send needs PEAK's PCANBasic Python wrapper, which isn't available here.\n")
+        print("To use --send:")
+        print("  1. Install the PCAN driver (provides PCANBasic.dll) - the same driver your")
+        print("     PCAN-USB adapter or clone already uses.")
+        print("  2. Download PEAK's free 'PCAN-Basic API' and copy PCANBasic.py from it into")
+        print("     this tools/ folder, next to make_test_frames.py:")
+        print("     https://www.peak-system.com/PCAN-Basic.239.0.html?&L=1\n")
+        print("Or skip all of that: run WITHOUT --send to just print the frames, and paste")
+        print("them into PCAN-View's transmit list (PCAN-View needs no Python at all).")
+        sys.exit(1)
     baud = {"125": PCAN_BAUD_125K, "250": PCAN_BAUD_250K, "500": PCAN_BAUD_500K}[bitrate]
     p = PCANBasic()
     st = p.Initialize(PCAN_USBBUS1, baud)

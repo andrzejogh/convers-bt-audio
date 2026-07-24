@@ -28,9 +28,19 @@ If you don't have a USB source to try, the `0x4C7` injection test below is the p
 
 ## What you need
 
-- A **PCAN-USB adapter** *or* a cheap compatible clone (the common "PCAN-USB" clones sold for ~$10–15 online work with PEAK's software). 
-- **[PCAN-View](https://www.peak-system.com/PCAN-View.242.0.html?&L=1)** — PEAK's free CAN monitor/transmitter for Windows.
+- A **PCAN-USB adapter** *or* a cheap compatible clone (the common "PCAN-USB" clones sold for ~$10–15 online work with PEAK's software).
+- **[PCAN-View](https://www.peak-system.com/PCAN-View.242.0.html?&L=1)** — PEAK's free CAN monitor/transmitter for Windows. Installing it also installs the PCAN driver.
 - Access to the car's **MS-CAN** (infotainment) bus. This is the bus the cluster uses for media text; it runs at **125 kbit/s**. Where to tap it is vehicle-specific — the [microhacker forum](https://microhacker.denkdose.de/) documents the connectors for these clusters.
+
+**Software — you only need what your chosen method uses:**
+
+| Method | Needs |
+|---|---|
+| **Copy the frame bytes below into PCAN-View** (simplest) | Just PCAN-View. **No Python, no scripts.** |
+| **Run `make_test_frames.py` to print frames for custom text** | Python 3 (standard library only — nothing to install). |
+| **Run `make_test_frames.py --send` to transmit automatically** | Python 3 **plus** PEAK's [PCAN-Basic API](https://www.peak-system.com/PCAN-Basic.239.0.html?&L=1): copy its `PCANBasic.py` into the `tools/` folder next to the script (the PCAN driver, installed with PCAN-View, provides the matching `PCANBasic.dll`). |
+
+For the quick tests below, the exact bytes are printed right here — so the zero-Python PCAN-View route is all you need.
 
 > ⚠️ Ignition **on / ACC, car parked**, engine off is fine. Do not do this while driving. You are only adding harmless metadata frames, but treat the CAN bus with respect.
 
@@ -101,7 +111,7 @@ A longer string is sent as a First Frame + Consecutive Frames that must go out *
 python tools/make_test_frames.py --title "PATCH TEST" --artist "CANBUS" --send --loop 30
 ```
 
-(`--send` needs the PCAN adapter and PEAK's `PCANBasic` Python module, which ships with the PCAN drivers.) Without `--send` it just prints the frames so you can build a PCAN-View transmit list and trigger them in sequence.
+(`--send` needs the extra `PCANBasic.py` copied into `tools/` — see the software table above; without it the script prints a reminder of exactly what to install.) Without `--send` it just prints the frames so you can build a PCAN-View transmit list and trigger them in sequence — no Python API required.
 
 ---
 
