@@ -120,10 +120,16 @@ tools/
   apply_patch_v3.py    CAN 4B1 → media store code cave (hook @0x236f6, cave @0x83240)
   apply_render.py      BT Audio renderer patch (relocates the title buffer)
   vbf_tool.py          VBF pack/unpack (CRC16-CCITT + CRC32)
+  make_test_frames.py  generate/send CAN 0x4B1 test frames to verify the cluster
 docs/
   HOW_IT_WORKS.md      full reverse-engineering write-up
   FLASHING.md          dump → patch → pack → flash walkthrough
+  TESTING.md           prove the patch works by injecting known 0x4B1 frames
 ```
+
+## Nothing showing from your phone?
+
+The patch displays only what arrives on the bus as CAN `0x4B1`. Before assuming the flash failed, **inject known test frames** to check the cluster side independently — see **[docs/TESTING.md](docs/TESTING.md)**. If an injected title shows up, the patch is fine and the issue is that your Bluetooth source isn't broadcasting `0x4B1`.
 
 ## Contributing
 
