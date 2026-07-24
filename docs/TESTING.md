@@ -149,6 +149,39 @@ python tools/make_test_frames.py --title "PATCH TEST" --artist "CANBUS" --send -
 With PCAN-View **recording**, play a Bluetooth track and switch songs a couple of times. Look for **`0x4B1`** frames carrying text, e.g. `10 LL 46 12 01 01 …` (a title First Frame). 
 
 - If you **see** them but they don't display, open an issue with a short snippet of those frames.
-- If you **don't** see any `0x4B1` text, your source isn't broadcasting it. It may be using a different CAN ID — a capture of what *does* appear when metadata changes could let us support it.
+- If you **don't** see any `0x4B1` text, your source isn't broadcasting it. It may be using a different CAN ID — see the next section.
 
 > Never post a full CAN log publicly — it can contain your VIN. A few `0x4B1` lines are enough.
+
+---
+
+## If your head unit uses a different CAN ID (experimental)
+
+Different head units broadcast Bluetooth metadata on **different CAN IDs**. On the forum thread about this, a Blaupunkt **MCA** was found using IDs like **`4C3`, `4C6`, `4B0`** instead of the `4B1` this patch defaults to (there's no negotiation — each unit uses a fixed ID baked into its firmware):
+<https://microhacker.denkdose.de/viewtopic.php?t=127>
+
+**1. Find your ID.** Capture the bus (recording in PCAN-View), play Bluetooth and skip a couple of tracks, and look across the `0x4Bx`/`0x4Cx` range for a frame whose text changes with the track. A title frame looks like:
+
+```
+<ID>  10 LL 46 12 01 01 <first chars…>     (46 = title, 12 = Bluetooth source)
+```
+
+The `46 12 01 01` header is the tell-tale. Note the **ID** that frame arrives on.
+
+**2. Build the patch for that ID** with `--canid`:
+
+```bash
+python tools/apply_patch_v3.py main.bin main_patched.bin --canid 0x4C6
+python tools/apply_render.py  main_patched.bin main_patched.bin
+```
+
+then repack and flash as usual (see [FLASHING.md](FLASHING.md)).
+
+### What "experimental" means here
+
+- ✅ **Verified in the emulator:** the retargeted cave correctly reassembles and displays a frame on the new ID (e.g. `0x4C6`), and ignores others. Static analysis also confirms the patch's hook sits in the mailbox dispatch **before** any ID-based routing, so any ID the cluster accepts reaches it.
+- ⚠️ **It only works for IDs the cluster already receives.** The cluster's CAN acceptance table lists: **`4B1, 4B3, 4C0, 4C1, 4C6, 4C7, 4D0, 4D2, 4D4, 4D5`**. `4C6` is on it — good, since it's one of the MCA's Bluetooth IDs. **`4C3` and `4B0` are *not*** — a head unit using those would need an extra FlexCAN mailbox reconfiguration, which this patch does not do.
+- ⚠️ **Not yet confirmed on real hardware** for a non-default ID. If you try it, please report back with your car, head unit, ID and result — success or failure both help.
+- The format must also match (`[field][0x12][01][01][text]`). If your capture shows a different layout, open an issue with a snippet.
+
+> Never post a full CAN log publicly — it can contain your VIN. A few frames of the relevant ID are enough.

@@ -3,14 +3,32 @@
 """
 4B1 patch v3 - hook @0x236f6 (bl 0x230e4), BEFORE the mailbox is split by type.
 Fires for EVERY received frame (type 1/2/3). The cave calls 0x230e4 (to get mb),
-reads the FlexCAN mailbox, filters CAN-ID==0x4B1, reassembles ISO-TP -> media store,
-and returns mb (transparent to FUN_0x236cc). Usage: python apply_patch_v3.py <in.bin> <out.bin>
+reads the FlexCAN mailbox, filters CAN-ID==0x4B1 (or --canid), reassembles ISO-TP ->
+media store, and returns mb (transparent to FUN_0x236cc).
+
+Usage: python apply_patch_v3.py <in.bin> <out.bin> [--canid 0xNNN]
+
+--canid retargets the filtered CAN ID (default 0x4B1). EXPERIMENTAL - some head units
+broadcast Bluetooth metadata on a different ID; see docs/TESTING.md. It only works for IDs
+the cluster already accepts into a mailbox; other IDs need a mailbox reconfiguration.
 """
 import struct, sys
 BASE=0x5000; CAVE=0x83240
 HOOK=0x236f6; ORIG=0x230e4                 # bl 0x230e4 -> bl CAVE; cave calls 0x230e4, returns mb
 PERBUS=0x7a0d4; DLIST=0x8eff0; SABC=0x40009abc
 BUF=0x40009300; SLEN=0x40009318; SIDX=0x40009319; SBUS=0x40009320  # +0 bus, +1 mb
+
+# CAN ID the cave filters on. Default 0x4B1 (Bluetooth on the car this was built on).
+# --canid retargets it - EXPERIMENTAL. It only works for IDs the cluster already receives into a
+# mailbox (its acceptance table @0x79446 holds: 4B1, 4B3, 4C0, 4C1, 4C6, 4C7, 4D0, 4D2, 4D4, 4D5).
+# Our hook sits in the mailbox dispatch BEFORE any ID routing, so any accepted ID reaches the cave;
+# an ID outside that list is hardware-filtered before it ever arrives and would also need a mailbox
+# reconfiguration (not done here). Verified in the emulator for 0x4C6; confirm on your own car.
+CANID=0x4B1
+_argv=sys.argv[1:]
+if '--canid' in _argv:
+    _i=_argv.index('--canid'); CANID=int(_argv[_i+1],0); del _argv[_i:_i+2]
+assert 0<=CANID<=0x7FF, "CAN ID out of 11-bit range"
 
 def hw(v): return struct.pack('>H', v&0xFFFF)
 def ebl(src,dst):
@@ -32,7 +50,7 @@ I('ldrb_i',1,3,1); I('lsls_i',1,1,4); I('adds_r',4,4,1); I('adds_i8',4,0x80)
 # CAN-ID == 0x4B1 ? (4B1 only - 4B0 carries the same text; handling both = interleave + buffer corruption)
 I('ldr_iw',0,4,1); I('lsrs_i',0,0,18)
 I('ldrl',1,('c',0x7FF)); I('ands',0,1)
-I('ldrl',1,('c',0x4B1)); I('cmp_r',0,1); I('bcc',1,'L_orig')
+I('ldrl',1,('c',CANID)); I('cmp_r',0,1); I('bcc',1,'L_orig')
 I('adds_i3',6,4,0); I('adds_i8',6,8)                 # r6 = data (mb+8)
 I('ldrb_i',0,6,0); I('lsrs_i',2,0,4)
 I('cmp_i',2,1); I('bcc',0,'L_ff')
@@ -144,10 +162,11 @@ for k in lits: out+=struct.pack('>I',lv(k)); addr+=4
 assert len(out)==total
 
 def main():
-    fi=sys.argv[1] if len(sys.argv)>1 else 'main.bin'
-    fo=sys.argv[2] if len(sys.argv)>2 else 'main_patched.bin'
+    fi=_argv[0] if len(_argv)>0 else 'main.bin'
+    fo=_argv[1] if len(_argv)>1 else 'main_patched.bin'
     d=bytearray(open(fi,'rb').read()); ho=HOOK-BASE; co=CAVE-BASE
     orig=bytes(d[ho:ho+4]); exp=ebl(HOOK,ORIG)
+    print(f"CAN ID filter: {CANID:#05x}" + ("" if CANID==0x4B1 else "  (EXPERIMENTAL - non-default ID)"))
     print(f"HOOK @{HOOK:#x}: {orig.hex(' ')} (expected bl 0x230e4={exp.hex(' ')}) {'OK' if orig==exp else 'MISMATCH'}")
     assert orig==exp, "hook mismatch - unsupported firmware version"
     assert not any(d[co:co+total]), "cave not empty"

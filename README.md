@@ -131,6 +131,8 @@ docs/
 
 The patch displays only what arrives on the bus as CAN `0x4B1`. Before assuming the flash failed, **inject known test frames** to check the cluster side independently — see **[docs/TESTING.md](docs/TESTING.md)**. If an injected title shows up, the patch is fine and the issue is that your Bluetooth source isn't broadcasting `0x4B1`.
 
+**Different head units use different IDs.** Some units (e.g. a Blaupunkt MCA) put Bluetooth metadata on a different CAN ID than `0x4B1`. If a bus capture shows your metadata on another ID, you can retarget the patch with the **experimental** `--canid` option — see [docs/TESTING.md → different CAN ID](docs/TESTING.md#if-your-head-unit-uses-a-different-can-id-experimental).
+
 ## Contributing
 
 Issues and PRs welcome — especially ports to other firmware versions (please include your version string and the bytes the scripts report). Please **never** attach firmware dumps or VBF files to issues; they contain Ford code and your VIN.

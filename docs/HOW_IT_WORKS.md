@@ -38,7 +38,7 @@ Crucially, the **downstream** media pipeline works fine for source `0x12` (Bluet
 
 1. Save bus, call `0x230e4` → `mb`, save `mb`.
 2. `mailbox = *(0x7a0d4 + bus*4) + mb*16 + 0x80`; data at `mailbox+8`; `CAN-ID = (*(mb+4) >> 18) & 0x7FF`.
-3. Filter: **only `0x4B1`** (see §5). Anything else → original path, untouched.
+3. Filter: **only `0x4B1`** (see §5), or the ID given to `--canid`. Anything else → original path, untouched.
 4. `PCI = data[0] >> 4`: 1 = FF, 2 = CF, 0 = SF. Reassemble into `BUF`. `exp_len` (`LL`) is clamped to 23 (text ≤ 19 characters).
 5. On completion: NUL-terminate, check `source == 0x12`, then walk the field dispatcher list at `0x8eff0` (entries `[00][field][00 00][handler_ptr]`), set `*(0x40009abc) = entry`, and call the handler via `bx`. The handler (`FUN_0x6cd20` title / `0x6c9dc` artist / `0x6c90c` album) writes into the metadata store selected by the source byte.
 
@@ -127,3 +127,19 @@ Emulator stress tests confirm it: oversized 25- and 250-character fields (the la
 ## 12. Verification method
 
 Everything was validated in a [Unicorn](https://www.unicorn-engine.org/) emulator harness before flashing: reassembly (frames injected into a mailbox, cave invoked directly), and the full chain cave → store → renderer (run up to `0x1cf0a`, i.e. after the string copies; the actual pixel-drawing calls hit peripherals the harness doesn't model, and crash identically on stock, so that's an emulator artifact, not the patch). Boundary tests at 15/16/19 characters, the Bluetooth `~` truncation reproduced byte-for-byte from a real CAN capture, oversized-input robustness (§11), source filtering, transparency for non-`4B1` traffic, `4B0`/`4B1` interleave, and empty-artist regression all pass. The tools also rebuild the exact flashed image byte-for-byte, so the published scripts are provably the ones that were verified.
+
+## 13. Targeting a different CAN ID (`--canid`) and the acceptance table
+
+Different head units broadcast Bluetooth metadata on different CAN IDs (a Blaupunkt MCA was reported using `4C3`/`4C6`/`4B0` rather than `4B1`; there's no negotiation — each unit uses a fixed ID in its firmware). `apply_patch_v3.py --canid 0xNNN` retargets the single ID literal the cave compares against. Whether that actually helps depends on two firmware facts established here.
+
+**The cluster only receives a fixed set of IDs.** A CAN acceptance table lives at `0x79446`; it holds the standard IDs the cluster takes into a mailbox:
+
+```
+4B1, 4B3, 4C0, 4C1, 4C6, 4C7, 4D0, 4D2, 4D4, 4D5
+```
+
+An ID **not** in this table is dropped by the FlexCAN acceptance filter before it ever reaches software, so no software patch can see it without also reconfiguring a mailbox. Note `4C6` **is** present (one of the MCA's Bluetooth IDs) but `4C3` and `4B0` are **not** — and `4B0` being absent is exactly why the stock cluster never saw Bluetooth text at all.
+
+**The hook runs before any ID routing.** `FUN_0x236cc` dispatches purely by mailbox: it reads the hardware `IFLAG` (`FlexCAN_base + 0x30`), masks it with the per-bus enabled-mailbox mask, clears bit 14, and for each pending mailbox calls `0x230e4` (our hook site) to get `mb`, *then* routes by `type_table[bus*32 + mb]`. The ID-keyed routing (a separate function at `0x23690` using the table near `0x79490`) happens elsewhere and does **not** gate our hook. So the cave sees **every** pending mailbox except #14 — regardless of ID or of what the stock routing would decide.
+
+**Consequence.** Any ID in the acceptance table reaches the cave. `--canid 0x4C6` was verified end-to-end in the emulator (reassembles + displays on `0x4C6`, ignores `0x4B1`/`0x4C7`), and the default build (`0x4B1`) stays byte-for-byte identical. The one thing static analysis can't settle is whether a given ID's mailbox happens to be #14 or outside the enabled mask — unlikely for a media ID that sits in the same table as the working `4B1`/`4C7`, but only real hardware can confirm a non-default ID. Hence `--canid` is documented as **experimental**.
