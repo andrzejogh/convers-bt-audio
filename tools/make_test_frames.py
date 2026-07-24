@@ -14,9 +14,10 @@ By default it just PRINTS the frames (paste them into PCAN-View's transmit list)
 it transmits them itself via a PEAK PCAN-USB adapter (or a compatible clone) using PCANBasic.
 
 Usage:
-  python make_test_frames.py --title "OK"                      # simplest: one Single Frame
+  python make_test_frames.py --title "OK"                      # simplest: one Single Frame on 0x4B1
   python make_test_frames.py --title "PATCH TEST" --artist "CANBUS"
   python make_test_frames.py --title "PATCH TEST" --send --loop 30   # also transmit (needs PCAN)
+  python make_test_frames.py --title "OK" --id 0x4C7           # baseline: works even on STOCK firmware
 
 Notes:
   * ISO-TP framing: <=3 chars -> one Single Frame (easiest to send in PCAN-View, send it cyclic).
@@ -26,9 +27,15 @@ Notes:
 """
 import sys, argparse
 
-CID = 0x4B1
 SRC_BT = 0x12
 FIELD = {"title": 0x46, "artist": 0x42, "album": 0x3F}
+
+# Two useful target IDs (both with source byte 0x12 -> the cluster's BT store -> BT Audio screen):
+#   0x4B1 - the Bluetooth path this project patches in. Needs NO flow control.
+#   0x4C7 - the stock USB media path. A SINGLE frame here shows on the BT screen even on
+#           UNPATCHED firmware (it reuses the working media pipeline). Multi-frame on 0x4C7
+#           needs ISO-TP flow control, which this tool does not do - keep 0x4C7 tests to a
+#           short (<=3 char) title so they fit one frame.
 
 
 def field_frames(field, src, text):
@@ -68,14 +75,21 @@ def hexbytes(b):
     return " ".join(f"{x:02X}" for x in b)
 
 
-def print_frames(seq):
-    print(f"CAN ID: 0x{CID:03X}   DLC: 8   (MS-CAN, 125 kbit/s)\n")
+def print_frames(seq, cid):
+    print(f"CAN ID: 0x{cid:03X}   DLC: 8   (MS-CAN, 125 kbit/s)\n")
     print("  #  what          data bytes")
     print("  -- ------------- -----------------------")
     for i, (label, fr) in enumerate(seq, 1):
         print(f"  {i:>2} {label:<13} {hexbytes(fr)}")
     multi = any("CF" in l or "FF" in l for l, _ in seq)
     print()
+    if cid == 0x4C7:
+        print("0x4C7 = the stock USB media path: a single frame here shows on the BT Audio screen")
+        print("even on UNPATCHED firmware (good baseline: proves the cluster's display works).")
+        if multi:
+            print("WARNING: multi-frame on 0x4C7 needs ISO-TP flow control this tool doesn't send -")
+            print("use a <=3-char title so it fits ONE frame.")
+        print()
     if multi:
         print("Multi-frame: send these IN ORDER, top to bottom, once per burst (not each on its")
         print("own cyclic timer - that would interleave them). Easiest is --send, or a short")
@@ -85,7 +99,7 @@ def print_frames(seq):
         print("every 200 ms). Watch the BT Audio screen - the title should appear within a second.")
 
 
-def send_frames(seq, bitrate, loop, gap, stmin):
+def send_frames(seq, cid, bitrate, loop, gap, stmin):
     import time
     from PCANBasic import (PCANBasic, PCAN_USBBUS1, PCAN_BAUD_125K, PCAN_BAUD_250K,
                            PCAN_BAUD_500K, TPCANMsg, PCAN_MESSAGE_STANDARD, PCAN_ERROR_OK)
@@ -94,12 +108,12 @@ def send_frames(seq, bitrate, loop, gap, stmin):
     st = p.Initialize(PCAN_USBBUS1, baud)
     if st != PCAN_ERROR_OK:
         print("PCAN Initialize failed:", hex(st)); sys.exit(1)
-    print(f"PCAN @ {bitrate}k. Sending {len(seq)} frame(s) x {loop} bursts on 0x{CID:03X}.")
+    print(f"PCAN @ {bitrate}k. Sending {len(seq)} frame(s) x {loop} bursts on 0x{cid:03X}.")
     print("Watch the BT Audio screen. Ctrl+C to stop.")
     try:
         for _ in range(loop):
             for _label, fr in seq:
-                m = TPCANMsg(); m.ID = CID; m.MSGTYPE = PCAN_MESSAGE_STANDARD; m.LEN = 8
+                m = TPCANMsg(); m.ID = cid; m.MSGTYPE = PCAN_MESSAGE_STANDARD; m.LEN = 8
                 for i in range(8):
                     m.DATA[i] = fr[i]
                 p.Write(PCAN_USBBUS1, m)
@@ -117,6 +131,9 @@ def main():
     ap.add_argument("--title", help="title text (0x46). <=3 chars = one Single Frame.")
     ap.add_argument("--artist", help="artist text (0x42).")
     ap.add_argument("--album", help="album text (0x3F).")
+    ap.add_argument("--id", default="0x4B1",
+                    help="target CAN ID: 0x4B1 (patched BT path, default) or 0x4C7 (stock USB "
+                         "media path - a single frame shows on the BT screen even without the patch).")
     ap.add_argument("--send", action="store_true", help="transmit via PCAN (needs PCANBasic + PEAK/compatible adapter).")
     ap.add_argument("--bitrate", default="125", choices=["125", "250", "500"], help="MS-CAN is 125 (default).")
     ap.add_argument("--loop", type=int, default=30, help="how many bursts to send (--send).")
@@ -124,11 +141,12 @@ def main():
     ap.add_argument("--stmin", type=float, default=0.01, help="seconds between frames within a burst (--send).")
     a = ap.parse_args()
 
+    cid = int(a.id, 0)
     seq = build(a)
     if a.send:
-        send_frames(seq, a.bitrate, a.loop, a.gap, a.stmin)
+        send_frames(seq, cid, a.bitrate, a.loop, a.gap, a.stmin)
     else:
-        print_frames(seq)
+        print_frames(seq, cid)
 
 
 if __name__ == "__main__":

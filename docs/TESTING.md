@@ -52,6 +52,34 @@ In **PCAN-View** (connected at **125 kbit/s**):
 
 ---
 
+## Baseline test — the USB media path (works even on *stock* firmware)
+
+There's a second, deeper test worth knowing. Send the **same data bytes on ID `0x4C7`** (the
+factory USB media path) instead of `0x4B1`:
+
+```bash
+python tools/make_test_frames.py --title "OK" --id 0x4C7
+```
+→ `4C7  06 46 12 01 01 4F 4B 00`, sent cyclically in PCAN-View.
+
+Because the source byte is still `0x12`, the cluster routes it into the **BT** store, so the
+title shows on the **BT Audio** screen — and this works **even on unpatched firmware**, because
+it reuses the media pipeline the cluster already runs for USB. (This is actually the experiment
+that proved the whole approach was possible in the first place.)
+
+It's a great baseline: it tells you whether the cluster's BT-screen display path works *at all*,
+independently of both the patch and your Bluetooth source. Interpretation:
+
+- **`0x4C7` test shows, `0x4B1` test doesn't** → the display path is fine, but the patch isn't
+  active — the flash didn't take or the firmware version differs.
+- **Both show** → everything cluster-side is good; a "nothing from my phone" issue is purely the
+  Bluetooth source not broadcasting `0x4B1`.
+- **Neither shows** → you're likely not on the right CAN bus / bitrate, or this is a cluster
+  variant the patch doesn't target.
+
+> Keep `0x4C7` tests to a short (≤ 3-char) title: a single frame needs no flow control, but a
+> longer message on `0x4C7` does, and this tool doesn't send it.
+
 ## Fuller test — a real title (multi-frame)
 
 A longer string is sent as a First Frame + Consecutive Frames that must go out **in order, once per burst**. The tool can transmit them for you with correct ordering and timing:
