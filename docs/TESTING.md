@@ -2,7 +2,7 @@
 
 **Prove the cluster + patch work on their own — without the phone or Bluetooth module.**
 
-The patch only ever displays what arrives on the CAN bus as **ID `0x4B1`, source byte `0x12`**. That metadata is broadcast by the module that handles Bluetooth audio, on the shared MS-CAN (infotainment) bus. Because it's a broadcast, every node on that bus — the radio/head unit **and** the Convers+ cluster — sees the same frames.
+The patch only ever displays what arrives on the CAN bus as **ID `0x4B1`, source byte `0x12`**. That metadata is broadcast by the module that handles Bluetooth audio, on the shared **MM MS-CAN** (multimedia) bus. Because it's a broadcast, every node on that bus — the radio/head unit **and** the Convers+ cluster — sees the same frames.
 
 So there are two independent questions when "nothing shows from my phone":
 
@@ -30,7 +30,7 @@ If you don't have a USB source to try, the `0x4C7` injection test below is the p
 
 - A **PCAN-USB adapter** *or* a cheap compatible clone (the common "PCAN-USB" clones sold for ~$10–15 online work with PEAK's software).
 - **[PCAN-View](https://www.peak-system.com/PCAN-View.242.0.html?&L=1)** — PEAK's free CAN monitor/transmitter for Windows. Installing it also installs the PCAN driver.
-- Access to the car's **MS-CAN** (infotainment) bus. This is the bus the cluster uses for media text; it runs at **125 kbit/s**. Where to tap it is vehicle-specific — the [microhacker forum](https://microhacker.denkdose.de/) documents the connectors for these clusters.
+- A tap into the car's **MM MS-CAN** (multimedia) bus at **125 kbit/s** — see [Wiring into the bus](#wiring-into-the-bus) just below; the easy way is the OBD-II port.
 
 **Software — you only need what your chosen method uses:**
 
@@ -46,6 +46,28 @@ For the quick tests below, the exact bytes are printed right here — so the zer
 
 ---
 
+## Wiring into the bus
+
+The Bluetooth/USB metadata rides on the **MM MS-CAN** (the multimedia CAN), at **125 kbit/s** — the bus the radio/nav (ACM) and the Convers+ cluster (IPC) share. Note this is a *different* bus from the regular MS-CAN, so use the right pins.
+
+The easiest and safest tap is the **OBD-II (DLC) port** — no need to open the cluster:
+
+| Signal | OBD-II pin |
+|---|:--:|
+| **MM MS-CAN CAN-H** (metadata) | **pin 1** |
+| **MM MS-CAN CAN-L** (metadata) | **pin 8** |
+| **Ground — mandatory** | **pin 4** (chassis) or **pin 5** (signal) |
+
+Connect **all three**: adapter CAN-H → pin 1, CAN-L → pin 8, and — this part is **mandatory** — the adapter's **GND → pin 4 or 5**. A USB-CAN adapter (CANable, PCAN clone, etc.) running off a laptop has no shared reference with the car otherwise, and CAN will be unreliable or simply won't work without that common ground.
+
+Set your adapter to **125 kbit/s**. Do **not** add a termination resistor — the bus is already terminated. Ignition on / ACC, car parked.
+
+(For reference, the other buses on the OBD-II port: regular MS-CAN = pins 3/11 @ 125k, HS-CAN = pins 6/14 @ 500k — but the metadata is on MM MS-CAN, pins 1/8.)
+
+Pinout from the MK4-Wiki CAN-bus overview by Go4IT: <https://mk4-wiki.denkdose.de/artikel/can-bus/mk4_can-bus_schema>
+
+---
+
 ## Easiest test — a single frame
 
 Generate the frame:
@@ -57,7 +79,7 @@ python tools/make_test_frames.py --title "OK"
 It prints something like:
 
 ```
-CAN ID: 0x4B1   DLC: 8   (MS-CAN, 125 kbit/s)
+CAN ID: 0x4B1   DLC: 8   (MM MS-CAN, 125 kbit/s)
 
   #  what          data bytes
   -- ------------- -----------------------

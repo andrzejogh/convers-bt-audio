@@ -23,7 +23,8 @@ Notes:
   * ISO-TP framing: <=3 chars -> one Single Frame (easiest to send in PCAN-View, send it cyclic).
     Longer text -> a First Frame + Consecutive Frames that must be sent IN ORDER, once per burst.
   * 0x4B1 needs NO flow control - the BT module just streams the frames; so do we.
-  * MS-CAN (infotainment) bus, 125 kbit/s. Ignition on, car parked. See docs/TESTING.md.
+  * MM MS-CAN (multimedia) bus, 125 kbit/s - OBD-II pins 1 (CAN-H) / 8 (CAN-L), plus GND to
+    pin 4 or 5. Ignition on, car parked. See docs/TESTING.md for wiring.
 """
 import sys, argparse
 
@@ -76,7 +77,7 @@ def hexbytes(b):
 
 
 def print_frames(seq, cid):
-    print(f"CAN ID: 0x{cid:03X}   DLC: 8   (MS-CAN, 125 kbit/s)\n")
+    print(f"CAN ID: 0x{cid:03X}   DLC: 8   (MM MS-CAN, 125 kbit/s)\n")
     print("  #  what          data bytes")
     print("  -- ------------- -----------------------")
     for i, (label, fr) in enumerate(seq, 1):
@@ -147,7 +148,7 @@ def main():
                     help="target CAN ID: 0x4B1 (patched BT path, default) or 0x4C7 (stock USB "
                          "media path - a single frame shows on the BT screen even without the patch).")
     ap.add_argument("--send", action="store_true", help="transmit via PCAN (needs PCANBasic + PEAK/compatible adapter).")
-    ap.add_argument("--bitrate", default="125", choices=["125", "250", "500"], help="MS-CAN is 125 (default).")
+    ap.add_argument("--bitrate", default="125", choices=["125", "250", "500"], help="MM MS-CAN is 125 (default).")
     ap.add_argument("--loop", type=int, default=30, help="how many bursts to send (--send).")
     ap.add_argument("--gap", type=float, default=0.3, help="seconds between bursts (--send).")
     ap.add_argument("--stmin", type=float, default=0.01, help="seconds between frames within a burst (--send).")
