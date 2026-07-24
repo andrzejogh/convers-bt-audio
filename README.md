@@ -6,7 +6,8 @@ The Convers+ cluster (MCU: NXP **MAC7116**) shows track metadata for USB and CD 
 
 - ✅ Bluetooth track **title** and **artist** now appear on the *BT Audio* screen
 - ✅ Reuses the cluster's own, already-working media text pipeline (the USB path)
-- ✅ Up to **18 characters** per field
+- ✅ Up to **19 characters** per field — which is exactly the Bluetooth module's own maximum (see [Limitations](#limitations))
+- ✅ Robust: oversized or malformed metadata from the phone/BT module cannot overflow anything or crash the cluster
 - ✅ Ships as **patch scripts only** — you patch your *own* firmware dump; no Ford binaries are redistributed
 
 > **Tested on:** Ford **Mondeo MK4 facelift (FL), model years 2011+** — Convers+ cluster, firmware **1412-FL**, VBF partition `CS7T-14C026-CD`. Other cars/versions that use the same Convers+ cluster may work, but are currently **unverified** (see [Compatibility](#compatibility)).
@@ -57,7 +58,7 @@ The patch installs a small code cave hooked into the CAN receive path (**before*
 2. reassembles the ISO-TP payload (First / Consecutive / Single frames),
 3. feeds the completed text into the **same media dispatcher the USB path uses**, which writes it to the Bluetooth metadata store the screen already reads.
 
-A second, tiny patch to the BT Audio screen renderer relocates one string buffer so title and artist can each be up to 18 characters without one overwriting the other.
+A second, tiny patch to the BT Audio screen renderer relocates one string buffer so title and artist can each be up to 19 characters without one overwriting the other.
 
 Full technical write-up: **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)**.
 
@@ -87,9 +88,9 @@ python tools/apply_patch_v3.py main.bin main_patched.bin
 ```
 The script prints the hook it found and asserts it matches before writing. If it aborts with a mismatch, your firmware version differs — stop and open an issue.
 
-**3. Apply the renderer patch (18-character fields):**
+**3. Apply the renderer patch (19-character fields):**
 ```bash
-python tools/apply_render_18.py main_patched.bin main_patched.bin
+python tools/apply_render.py main_patched.bin main_patched.bin
 ```
 
 **4. Repack into a flashable VBF**, using your original VBF as the template (keeps the correct part number, address and CRCs):
@@ -103,8 +104,10 @@ python tools/vbf_tool.py pack original.vbf main_patched.bin main_patched.vbf
 
 ## Limitations
 
-- **18 characters max** per field. This is a hard limit of the stock renderer's on-stack buffers; going higher would require patching the drawing code more invasively.
+- **19 characters max** per field — and this is not our limit, it's the **Bluetooth module's**. The module truncates every field to 19 characters *at the source*, before it ever transmits over CAN, so no firmware change on the cluster side can show more (the extra characters never leave the phone/BT module). 19 also happens to be the cluster architecture's own ceiling (the stock field handler and buffers cap there), so the two limits line up perfectly.
+- **The `~` truncation marker.** When a title/artist is longer than the module allows, the module sends the first 18 characters followed by a `~` (0x7E) as the 19th, meaning "there's more." So e.g. *"Turn the lights off (remix)"* arrives — and is shown — as *"Turn the lights of~"*. That trailing `~` comes from the Bluetooth module, not from this patch; the cluster is faithfully displaying exactly what it receives.
 - Handles **`4B1` only** (not `4B0`). The two carry the same text but interleave at the frame level; processing both corrupts the shared reassembly buffer. `4B1` alone is complete.
+- **Robust against bad input.** The reassembly is bounded by a single clamp plus a per-frame guard, so oversized (even 250-char), unterminated, orphaned or garbage frames from the BT module are safely truncated or ignored — they cannot overflow the scratch buffer, corrupt neighbouring fields, or crash the cluster. See [HOW_IT_WORKS.md §11](docs/HOW_IT_WORKS.md).
 - **Album** is reassembled too, but many clusters don't show an album field on the BT screen.
 - Tested on one firmware variant (see Compatibility).
 
@@ -115,7 +118,7 @@ python tools/vbf_tool.py pack original.vbf main_patched.bin main_patched.vbf
 ```
 tools/
   apply_patch_v3.py    CAN 4B1 → media store code cave (hook @0x236f6, cave @0x83240)
-  apply_render_18.py   BT Audio renderer patch (18-char title/artist)
+  apply_render.py      BT Audio renderer patch (relocates the title buffer)
   vbf_tool.py          VBF pack/unpack (CRC16-CCITT + CRC32)
 docs/
   HOW_IT_WORKS.md      full reverse-engineering write-up

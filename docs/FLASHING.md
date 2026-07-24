@@ -40,10 +40,10 @@ Saved main_patched.bin
 
 If instead you see a **mismatch / assertion error**, your firmware version is different. **Stop.** The script deliberately refuses to patch an image it doesn't recognise rather than corrupt it. Open an issue with the version string and the bytes it reported.
 
-## Step 3 — Apply the renderer patch (18-char fields)
+## Step 3 — Apply the renderer patch (19-char fields)
 
 ```bash
-python tools/apply_render_18.py main_patched.bin main_patched.bin
+python tools/apply_render.py main_patched.bin main_patched.bin
 ```
 
 Expected:
@@ -91,7 +91,7 @@ Flash `main_patched.vbf` with your usual tool. Afterwards:
 
 1. Start the car / power the cluster normally.
 2. Connect a phone over Bluetooth and start playing music.
-3. Open the **BT Audio** screen — the track **title** and **artist** should now be shown (up to 18 characters each).
+3. Open the **BT Audio** screen — the track **title** and **artist** should now be shown (up to 19 characters each). A title longer than that arrives from the Bluetooth module already truncated to 18 characters plus a `~` marker — that is normal and comes from the module, not the cluster (see the README's Limitations).
 
 ## If it goes wrong
 

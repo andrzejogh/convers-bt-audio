@@ -39,7 +39,7 @@ Crucially, the **downstream** media pipeline works fine for source `0x12` (Bluet
 1. Save bus, call `0x230e4` → `mb`, save `mb`.
 2. `mailbox = *(0x7a0d4 + bus*4) + mb*16 + 0x80`; data at `mailbox+8`; `CAN-ID = (*(mb+4) >> 18) & 0x7FF`.
 3. Filter: **only `0x4B1`** (see §5). Anything else → original path, untouched.
-4. `PCI = data[0] >> 4`: 1 = FF, 2 = CF, 0 = SF. Reassemble into `BUF`. `exp_len` (`LL`) is clamped to 22.
+4. `PCI = data[0] >> 4`: 1 = FF, 2 = CF, 0 = SF. Reassemble into `BUF`. `exp_len` (`LL`) is clamped to 23 (text ≤ 19 characters).
 5. On completion: NUL-terminate, check `source == 0x12`, then walk the field dispatcher list at `0x8eff0` (entries `[00][field][00 00][handler_ptr]`), set `*(0x40009abc) = entry`, and call the handler via `bx`. The handler (`FUN_0x6cd20` title / `0x6c9dc` artist / `0x6c90c` album) writes into the metadata store selected by the source byte.
 
 ## 4. Why earlier hook sites failed
@@ -75,7 +75,7 @@ The gap `sp+0x64 − sp+0x54 = 0x10 = 16 bytes`. `strcpy` writes `strlen+1` byte
 
 (The USB renderer `FUN_0x1cfe6` is structurally identical — same 16-byte gap. Its longer titles work only because the title is copied first and, with a short artist, its own overflow into saved registers is silently tolerated.)
 
-## 8. The 18-character renderer patch
+## 8. The 19-character renderer patch
 
 The frame **cannot** be enlarged: the epilogue at `0x1ce8c` (`add sp,#0x74; pop {r4-r7}; pop {r3}; bx r3`) is **shared** with the neighbouring function, so changing `sub sp` would break that function.
 
@@ -88,11 +88,24 @@ add r0, sp, #0x64  (0xA819)  →  add r0, sp, #0x40  (0xA810)
 
 Now the title stays in its 20-byte getter buffer (≤19 chars), the artist at `sp+0x54` has the full 32 bytes up to the saved registers (`sp+0x74`, ≤31 chars), and the title `strcpy` at `0x1ceda` becomes `strcpy(sp+0x40, sp+0x40)` — a harmless no-op that no longer writes to `sp+0x64`, so a long title can't clobber the saved registers either.
 
-The cave's clamp is raised from 19 to **22** (text ≤18 chars). `BUF` is 24 bytes, so `exp_len = 22` leaves the NUL at `BUF[22]` safely in range.
+The cave's clamp is set to **23** (text ≤ 19 chars). `BUF` is 24 bytes, so `exp_len = 23` puts the NUL at `BUF[23]` — the last byte of `BUF`, still clear of `SLEN` at `BUF[24]`.
 
 The empty-artist → album fallback (`0x1cef4`) is stock behaviour, unchanged by the patch.
 
-## 9. Key addresses
+## 9. The Bluetooth module's own 19-char limit (the `~` marker)
+
+The real ceiling on field length is the **Bluetooth module**, not the cluster. Capturing the bus for tracks with long titles shows that **every** oversized field arrives with `LL = 0x18` (24 bytes = 19 characters of text), and its last character is always `~` (`0x7E`):
+
+```
+FF : 10 18 46 12 01 01 53 74     LL=0x18, "St…"
+CF1: 21 65 70 68 61 6E 69 65     "ephanie"
+CF2: 22 20 2D 20 48 4E 54 52     " - HNTR"
+CF3: 23 20 52 7E 00 00 00 00     " R~" + NUL   →  "Stephanie - HNTR R~"
+```
+
+So the module truncates each field to **18 characters plus a `~` marker** (19 total) *before* it transmits. In one capture, 12 of 14 titles — plus many artists and albums — were truncated this way. The cluster faithfully stores and shows all 19 characters, `~` included: a title displayed as *"Turn the lights of~"* is the module signalling "there's more", not a defect in this patch. No cluster-side change can recover the dropped characters — they never leave the module. This is also why clamping at 19 is exactly right: anything higher would be unreachable.
+
+## 10. Key addresses
 
 - Hook `0x236f6`; cave `0x83240`; original RX `0x230e4`; RX dispatcher `FUN_0x236cc`.
 - FlexCAN: per-bus bases `*(0x7a0d4 + bus*4)`; `mailbox = base + mb*16 + 0x80`; ID at `+4` (`canid << 18`); data at `+8`.
@@ -101,6 +114,16 @@ The empty-artist → album fallback (`0x1cef4`) is stock behaviour, unchanged by
 - Metadata stores (base `0x4000a749`): **BT** title `0x4000a75d` / artist `0x4000a771` / album `0x4000a799`; USB title `0x4000a6d1`; CD title `0x4000a735`.
 - BT Audio renderer `FUN_0x1ce94` (frame `0x74`, shared epilogue `0x1ce8c`). Renderer getters: `0x6d550` title, `0x6d568` artist, `0x6d580` album.
 
-## 10. Verification method
+## 11. Robustness / safety
 
-Everything was validated in a [Unicorn](https://www.unicorn-engine.org/) emulator harness before flashing: reassembly (frames injected into a mailbox, cave invoked directly), and the full chain cave → store → renderer (run up to `0x1cf0a`, i.e. after the string copies; the actual pixel-drawing calls hit peripherals the harness doesn't model, and crash identically on stock, so that's an emulator artifact, not the patch). Boundary tests at 15/16/18 characters, source filtering, transparency for non-`4B1` traffic, `4B0`/`4B1` interleave, and empty-artist regression all pass.
+The reassembly is bounded by three cooperating checks, so no metadata from the phone or BT module — however oversized or malformed — can overflow anything or crash the cluster:
+
+1. **FF clamp** — `exp_len = min(LL, 23)` caps the declared length no matter what the sender claims.
+2. **CF guard** — a byte is stored only while `idx + j < 23`, so no frame can write past `BUF[22]`; the terminating NUL lands at `BUF[23]`, the last byte of the 24-byte `BUF`, one short of `SLEN`.
+3. **Completion check** — dispatch happens only when `5 ≤ exp_len` and `idx ≥ exp_len`; anything else is dropped.
+
+Emulator stress tests confirm it: oversized 25- and 250-character fields (the latter with no terminator and 36 Consecutive Frames), orphaned CFs with no First Frame, garbage PCI codes, and title + artist both oversized at once — all stay in bounds. The scratch buffer never overflows, neighbouring stores keep their guard bytes, extra frames are ignored, and the renderer always receives a string of ≤ 19 characters that fits its buffer. One clamp at the input closes the whole pipeline.
+
+## 12. Verification method
+
+Everything was validated in a [Unicorn](https://www.unicorn-engine.org/) emulator harness before flashing: reassembly (frames injected into a mailbox, cave invoked directly), and the full chain cave → store → renderer (run up to `0x1cf0a`, i.e. after the string copies; the actual pixel-drawing calls hit peripherals the harness doesn't model, and crash identically on stock, so that's an emulator artifact, not the patch). Boundary tests at 15/16/19 characters, the Bluetooth `~` truncation reproduced byte-for-byte from a real CAN capture, oversized-input robustness (§11), source filtering, transparency for non-`4B1` traffic, `4B0`/`4B1` interleave, and empty-artist regression all pass. The tools also rebuild the exact flashed image byte-for-byte, so the published scripts are provably the ones that were verified.

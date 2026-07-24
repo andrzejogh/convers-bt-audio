@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-apply_render_18.py - patch the BT Audio screen renderer (FUN_0x1ce94) so that title and
-artist can be up to ~18 characters (instead of 15), WITHOUT changing the frame size (the
+apply_render.py - patch the BT Audio screen renderer (FUN_0x1ce94) so that title and artist
+can be up to 19 characters (instead of the stock 15), WITHOUT changing the frame size (the
 epilogue 0x1ce8c is SHARED with the neighbouring function - changing `sub sp` would break it).
+
+This patch only relocates a buffer; the actual character limit is set by the clamp in
+apply_patch_v3.py (currently 19, which also matches the Bluetooth module's own truncation).
 
 The bug: the renderer loads the title via a getter into sp+0x40 (a 20-byte buffer, up to
 sp+0x54), then NEEDLESSLY copies it with strcpy into the cramped sp+0x64 (16B, right next to
@@ -19,7 +22,7 @@ registers), and the title strcpy at 0x1ceda becomes strcpy(sp+0x40, sp+0x40) = a
   @ 0x1cedc (title strcpy, becomes self-copy), 0x1cefe (empty-title branch),
     0x1cf1a (0x3a320), 0x1cf32 (0x1ccea), 0x1cf4a (0x409ea draw)
 
-Usage: python apply_render_18.py <in.bin> <out.bin>   (operates on the code partition, base 0x5000)
+Usage: python apply_render.py <in.bin> <out.bin>   (operates on the code partition, base 0x5000)
 """
 import sys, struct
 

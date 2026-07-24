@@ -50,10 +50,13 @@ I('adds_i3',2,2,1); I('b','L_sfl')
 L('L_sfd')
 I('ldrl',3,('c',SIDX)); I('strb_i',1,3,0); I('b','L_check')  # idx = L (complete)
 L('L_ff')
-# Clamp 22: text <=18 chars. Pairs with the renderer patch (apply_render_18.py), which
-# gives the title buffer sp+0x40 (20B) and the artist sp+0x54 (32B). 18+null=19B fits with room.
-# Getter/BUF: BUF is 24B (0x40009300..17), so exp_len=22 -> null@BUF[22]. (see docs/HOW_IT_WORKS.md)
-I('ldrb_i',1,6,1); I('cmp_i',1,22); I('bcc',9,'L_ffok'); I('movs_i',1,22)
+# Clamp 23: text <=19 chars. This is the architecture's natural ceiling (the stock field
+# handler caps at 19, the title store is 20B, the renderer buffers are 20B). It also matches
+# the Bluetooth module's own limit: it truncates every field to 18 chars + a '~' marker (19
+# total) at the source, so nothing longer ever arrives. Pairs with apply_render.py (title ->
+# sp+0x40 20B, artist -> sp+0x54). BUF is 24B (0x40009300..17), exp_len=23 -> null@BUF[23]
+# = last byte of BUF (no collision with SLEN). See docs/HOW_IT_WORKS.md.
+I('ldrb_i',1,6,1); I('cmp_i',1,23); I('bcc',9,'L_ffok'); I('movs_i',1,23)
 L('L_ffok')
 I('ldrl',3,('c',SLEN)); I('strb_i',1,3,0); I('ldrl',5,('c',BUF)); I('movs_i',2,0)
 L('L_ffl')
@@ -64,7 +67,7 @@ L('L_cf')
 I('ldrl',3,('c',SIDX)); I('ldrb_i',2,3,0); I('cmp_i',2,0); I('bcc',0,'L_orig')
 I('ldrl',5,('c',BUF)); I('movs_i',1,0)
 L('L_cfl')
-I('adds_r',0,2,1); I('cmp_i',0,22); I('bcc',2,'L_cfd')
+I('adds_r',0,2,1); I('cmp_i',0,23); I('bcc',2,'L_cfd')
 I('adds_r',0,6,1); I('ldrb_i',0,0,1); I('adds_r',3,5,2); I('strb_r',0,3,1)
 I('adds_i3',1,1,1); I('cmp_i',1,7); I('bcc',3,'L_cfl')
 L('L_cfd')
