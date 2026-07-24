@@ -13,6 +13,19 @@ This page covers #1. If injected frames show up but your phone's don't, the patc
 
 ---
 
+## First — the zero-hardware check: does USB metadata show?
+
+Before reaching for a CAN adapter, answer one question: **when you play music from a USB stick, does the cluster show the track title and artist?**
+
+USB metadata is stock functionality, and the patch feeds the Bluetooth text into the *same* media display pipeline the cluster already uses for USB. So:
+
+- **USB titles show** → the cluster's media display works. Whatever's wrong is specific to Bluetooth: either the patch isn't active (flash) or nothing is arriving on `0x4B1` (source). Continue below.
+- **USB titles don't show either** → the problem is more fundamental (wrong/faulty cluster, wrong CAN bus, or a variant this patch doesn't target). The Bluetooth patch can't work if the media display itself doesn't. Sort this out first.
+
+If you don't have a USB source to try, the `0x4C7` injection test below is the powered equivalent.
+
+---
+
 ## What you need
 
 - A **PCAN-USB adapter** *or* a cheap compatible clone (the common "PCAN-USB" clones sold for ~$10–15 online work with PEAK's software). 
