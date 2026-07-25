@@ -103,7 +103,7 @@ CF2: 22 20 2D 20 48 4E 54 52     " - HNTR"
 CF3: 23 20 52 7E 00 00 00 00     " R~" + NUL   →  "Stephanie - HNTR R~"
 ```
 
-So the module truncates each field to **18 characters plus a `~` marker** (19 total) *before* it transmits. In one capture, 12 of 14 titles — plus many artists and albums — were truncated this way. The cluster faithfully stores and shows all 19 characters, `~` included: a title displayed as *"Turn the lights of~"* is the module signalling "there's more", not a defect in this patch. No cluster-side change can recover the dropped characters — they never leave the module. This is also why clamping at 19 is exactly right: anything higher would be unreachable.
+So the module truncates each field to **18 characters plus a `~` marker** (19 total) *before* it transmits. In one capture, 12 of 14 titles — plus many artists and albums — were truncated this way. The cave stores all 19 characters, `~` included, but the cluster's display code **does not render the `~` glyph** — it's ignored on screen — so an over-length title shows as its first **18** real characters (e.g. *"Turn the lights of"*). A genuine 19th character is only visible when a title is **exactly 19 real characters**; for anything longer the 19th slot is the module's `~`, which isn't drawn. So the 18→19 clamp change is, in practice, marginal — it only helps exact-19 titles. Either way, no cluster-side change can recover the characters the module dropped: they never leave it, which is also why clamping at 19 is the sensible ceiling.
 
 ## 10. Key addresses
 

@@ -91,7 +91,7 @@ Flash `main_patched.vbf` with your usual tool. Afterwards:
 
 1. Start the car / power the cluster normally.
 2. Connect a phone over Bluetooth and start playing music.
-3. Open the **BT Audio** screen — the track **title** and **artist** should now be shown (up to 19 characters each). A title longer than that arrives from the Bluetooth module already truncated to 18 characters plus a `~` marker — that is normal and comes from the module, not the cluster (see the README's Limitations).
+3. Open the **BT Audio** screen — the track **title** and **artist** should now be shown. A longer title arrives from the Bluetooth module already truncated to 18 characters plus a `~` marker (the cluster ignores the `~`, so you see 18) — that is the module's doing, not the patch. See the README's Limitations.
 
 ## If it goes wrong
 
