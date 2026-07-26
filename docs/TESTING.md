@@ -157,8 +157,20 @@ With PCAN-View **recording**, play a Bluetooth track and switch songs a couple o
 
 ## If your head unit uses a different CAN ID (experimental)
 
-Different head units broadcast Bluetooth metadata on **different CAN IDs**. On the forum thread about this, a Blaupunkt **MCA** was found using IDs like **`4C3`, `4C6`, `4B0`** instead of the `4B1` this patch defaults to (there's no negotiation — each unit uses a fixed ID baked into its firmware):
-<https://microhacker.denkdose.de/viewtopic.php?t=127>
+Different head units put the media metadata on **different CAN IDs** — and the forum research consistently attributes the sending to the **head unit / satnav** ("fx sends … via 1E6", "Travelpilot sends station name on 1E9", "these are only my findings with an MCA"), each using a fixed ID in its own firmware. Source: [microhacker forum t=127 "Transmitting infodata on MM-CAN"](https://microhacker.denkdose.de/viewtopic.php?t=127).
+
+The IDs reported there, for reference:
+
+| Info | ID(s) | Notes (per forum t=127) |
+|---|---|---|
+| USB titles | `4C7` | FL Mondeo with S&C |
+| **Bluetooth (phone)** | `4C3`, `4C6` | |
+| **Bluetooth music** | `4B0` | multiplex |
+| Radiotext / nav targets | `4C1` | multiplex, MSB = index |
+| Station names | `4B2`, `4B3`, `1E9` (FX/Travelpilot) | |
+| Active audio source → cluster | `1E6` | |
+
+**Which of these the cluster can actually receive** is a separate, firmware-side fact: the Convers+ acceptance table (`@0x79446`) only takes `4B1, 4B3, 4C0, 4C1, **4C6**, 4C7, 4D0, 4D2, 4D4, 4D5` (see [HOW_IT_WORKS.md §13](HOW_IT_WORKS.md)). So of the Bluetooth IDs above, **`4C6` is reachable** (and `--canid 0x4C6` can target it), but **`4C3` and `4B0` are not** — a head unit using those would need a mailbox reconfiguration this patch doesn't do. (This project's own car happens to use `4B1`, which is also in the table.)
 
 **1. Find your ID.** Capture the bus (recording in PCAN-View), play Bluetooth and skip a couple of tracks, and look across the `0x4Bx`/`0x4Cx` range for a frame whose text changes with the track. A title frame looks like:
 
