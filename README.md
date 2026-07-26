@@ -42,7 +42,8 @@ If any of the above scares you — good. Stop here.
 | MCU | NXP MAC7116 (ARM7TDMI-S, Thumb, **big-endian**, ARMv4T) |
 | Firmware base | `0x5000` |
 | **Confirmed firmware** | **1412-FL**, VBF partition `CS7T-14C026-CD` |
-| Other vehicles / versions | **Untested.** Other Fords using the same Convers+ cluster may work. The patch scripts verify the exact bytes they expect at each hook site and **abort** if they don't match, so they will refuse to patch an incompatible image rather than corrupt it. |
+| **Head unit (confirmed car)** | Blaupunkt **MCA**, with a discrete Bluetooth module (`C7ST-14D212`) that puts the metadata on the CAN bus |
+| Other vehicles / versions | **Untested.** Other Fords using the same Convers+ cluster may work. The patch is cluster-side, so what matters is that *some* module (a discrete BT module and/or the head unit) broadcasts the metadata on the bus — and on which ID (see [TESTING.md](docs/TESTING.md); use `--canid` if it differs). The patch scripts verify the exact bytes they expect at each hook site and **abort** if they don't match, so they will refuse to patch an incompatible image rather than corrupt it. |
 
 If you have a different firmware version and the scripts abort, please open an issue with your version string — the offsets can usually be ported.
 
