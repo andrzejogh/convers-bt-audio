@@ -122,6 +122,7 @@ tools/
   apply_render.py      BT Audio renderer patch (relocates the title buffer)
   vbf_tool.py          VBF pack/unpack (CRC16-CCITT + CRC32)
   make_test_frames.py  generate/send CAN 0x4B1 test frames to verify the cluster
+  emulate.py           run the patch on your own dump in an emulator (no car needed)
 docs/
   HOW_IT_WORKS.md      full reverse-engineering write-up
   FLASHING.md          dump → patch → pack → flash walkthrough
@@ -130,7 +131,16 @@ docs/
 
 ## Nothing showing from your phone?
 
-The patch displays only what arrives on the bus as CAN `0x4B1`. Before assuming the flash failed, **inject known test frames** to check the cluster side independently — see **[docs/TESTING.md](docs/TESTING.md)**. If an injected title shows up, the patch is fine and the issue is that your Bluetooth source isn't broadcasting `0x4B1`.
+**Start with no hardware at all.** You can run the patch on your *own* firmware dump in an emulator and watch a simulated Bluetooth track make it all the way to the BT Audio display — no car, no CAN adapter:
+
+```bash
+pip install unicorn
+python tools/emulate.py --dump main.bin
+```
+
+It patches a throw-away copy exactly the way you'd flash it, injects a `0x4B1` metadata frame, runs the real cluster code, and tells you in plain language whether the title/artist reached the screen — and whether your firmware version is even supported. See **[docs/TESTING.md → emulator](docs/TESTING.md#zero-hardware-run-it-in-an-emulator)**.
+
+Then, on the bench or in the car: the patch displays only what arrives on the bus as CAN `0x4B1`. Before assuming the flash failed, **inject known test frames** to check the cluster side independently — see **[docs/TESTING.md](docs/TESTING.md)**. If an injected title shows up, the patch is fine and the issue is that your Bluetooth source isn't broadcasting `0x4B1`.
 
 **Different head units use different IDs.** Some units (e.g. a Blaupunkt MCA) put Bluetooth metadata on a different CAN ID than `0x4B1`. If a bus capture shows your metadata on another ID, you can retarget the patch with the **experimental** `--canid` option — see [docs/TESTING.md → different CAN ID](docs/TESTING.md#if-your-head-unit-uses-a-different-can-id-experimental).
 

@@ -13,6 +13,76 @@ This page covers #1. If injected frames show up but your phone's don't, the patc
 
 ---
 
+## Zero-hardware: run it in an emulator
+
+**Before touching the car at all**, you can answer "does the patch work on *my* dump?" on your desk. `tools/emulate.py` loads your firmware into a small ARM emulator, applies the patch to a throw-away copy exactly the way you'd flash it, injects a synthetic Bluetooth metadata frame on `0x4B1` (the same ISO-TP framing the real module sends), runs the **actual cluster code** that handles it, and reads back both the media store and the screen renderer to tell you — in plain language — whether the title/artist reached the display.
+
+No car, no CAN adapter, no PCAN. Your own `main.bin` (the `0x5000`-based code partition) is the only input, and it is never modified.
+
+### What you need
+
+- **Python 3**
+- The **Unicorn** CPU emulator:
+  ```bash
+  pip install unicorn
+  ```
+- That's it. (`pip install capstone` too, only if you want the `--trace` disassembly.)
+
+### Run it
+
+```bash
+python tools/emulate.py --dump main.bin
+```
+
+Inject your own text, or test a non-default head-unit ID:
+
+```bash
+python tools/emulate.py --dump main.bin --title "PATCH TEST" --artist "CANBUS"
+python tools/emulate.py --dump main.bin --canid 0x4C6
+```
+
+If you pass a `--canid` the cluster's hardware doesn't accept (see [the CAN-ID section below](#if-your-head-unit-uses-a-different-can-id-experimental)), the tool prints a NOTE: the emulator can still demonstrate it, but the real cluster would filter that ID out before the firmware sees it.
+
+Already flashed your cluster and dumped it back? Point the tool at that dump — it detects the patch is present and tests **exactly what's on the car**, no re-patching:
+
+```bash
+python tools/emulate.py --dump my_flashed_cluster.bin
+```
+
+### Reading the result
+
+A successful run ends with:
+
+```
+  Same 0x4B1 frame, same method, driven through the real hook @0x236f4:
+
+  BEFORE  stock    title=''  artist=''   -> PASS (dropped, as it should be)
+  AFTER   patched  title='PATCH TEST'  artist='CANBUS'   -> PASS (reaches the store)
+          renderer title='PATCH TEST'  artist='CANBUS'   -> PASS (drawn on screen)
+  CONTROL wrong 0x4B0  title=''  artist=''   -> PASS (correctly ignored)
+
+  RESULT: PASS - the patch is what makes the difference: the identical Bluetooth
+          frame is DROPPED before patching and REACHES THE SCREEN after ...
+```
+
+It's a real before/after, and **all three** must pass:
+
+- **BEFORE** runs the *same* `0x4B1` frame through the *same* real hook site on the **unpatched** firmware — and it must be **dropped** (nothing reaches the store). This is what proves the stock cluster genuinely ignores Bluetooth metadata.
+- **AFTER** runs the identical frame on the **patched** image and confirms the title/artist reach the media store *and* the screen renderer.
+- **CONTROL** injects the same text on a **non-matching** ID (`0x4B0`, which carries the same Bluetooth text but the patch deliberately ignores) and confirms the store stays **blank** — an anti-false-positive guard.
+
+Because the two images are byte-identical except for the patch (the hook bytes + the code cave), and the run goes through the hook *as installed*, a PASS means the patch itself is what turns "dropped" into "on screen" — not the test harness writing memory. If the stock image had displayed the frame, or a wrong ID had leaked into the store, the run would **fail**. (Given an already-patched dump, the tool reconstructs the stock bytes in memory to run the same before/after.)
+
+| Outcome | Meaning |
+|---|---|
+| **PASS** | The patch works on your firmware. If your phone still shows nothing in the car, the cluster side is fine — the problem is the **source**: your head unit broadcasts on a different CAN ID. Find it (below) and re-run with `--canid 0xNNN`. |
+| **Patch state: UNKNOWN** | The tool couldn't find the expected hook — your firmware **version differs** from the one the patch targets, or the file isn't the `0x5000` code partition. The patch can't be applied as-is; open an issue with your car model, cluster part number and the printed bytes. |
+| **FAIL** | The patch applied but the injected text didn't reach the store/renderer in emulation. Please open an issue with the full output. |
+
+This is the fastest way to split the three usual causes of "nothing shows from my phone" — *wrong firmware version* (UNKNOWN), *flash didn't take* (dump the cluster and see `PATCHED` or not), and *source uses a different CAN ID* (PASS here, but nothing on the bus). The hardware tests below confirm the same thing on the real cluster.
+
+---
+
 ## First — the zero-hardware check: does USB metadata show?
 
 Before reaching for a CAN adapter, answer one question: **when you play music from a USB stick, does the cluster show the track title and artist?**
