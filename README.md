@@ -148,6 +148,16 @@ Then, on the bench or in the car: the patch displays only what arrives on the bu
 
 Issues and PRs welcome — especially ports to other firmware versions (please include your version string and the bytes the scripts report). Please **never** attach firmware dumps or VBF files to issues; they contain Ford code and your VIN.
 
+## Thanks
+
+- **[@wojtkowiak](https://github.com/wojtkowiak)** — the first person outside this project to
+  put the patch through its paces. He rebuilt it against his own dump and verified it end to
+  end in the Unicorn emulator ([#1](../../issues/1)). He runs a Ford **S-Max** with the same
+  Convers+ cluster, keeps a JTAG-recoverable bench unit for exactly this kind of work, and is
+  putting together a dump/flash procedure that needs nothing but a Canable interface.
+  A confirmation from the car itself is still to come — when it does, the S-Max joins the
+  Compatibility table above.
+
 ## License
 
 [MIT](LICENSE) © 2026 andrzejogh
