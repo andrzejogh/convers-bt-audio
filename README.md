@@ -10,7 +10,7 @@ The Convers+ cluster (MCU: NXP **MAC7116**) shows track metadata for USB and CD 
 - ✅ Robust: oversized or malformed metadata from the phone/BT module cannot overflow anything or crash the cluster
 - ✅ Ships as **patch scripts only** — you patch your *own* firmware dump; no Ford binaries are redistributed
 
-> **Tested on:** Ford **Mondeo MK4 facelift (FL), model years 2011+** — Convers+ cluster, firmware **1412-FL**, VBF partition `CS7T-14C026-CD`. Other cars/versions that use the same Convers+ cluster may work, but are currently **unverified** (see [Compatibility](#compatibility)).
+> **Confirmed on two cars:** Ford **Mondeo MK4 facelift (FL), 2011+** — Convers+ cluster, firmware **1412-FL** (`CS7T-14C026-CD`); and a Ford **S-Max**, firmware **1407** (`CS7T-10849-VE`), independently verified on the vehicle by [@wojtkowiak](https://github.com/wojtkowiak) ([#1](../../issues/1)). Other cars/versions that use the same Convers+ cluster may work, but are currently **unverified** (see [Compatibility](#compatibility)).
 
 ![Convers+ BT Audio screen showing live Bluetooth track title and artist](docs/images/bt-audio-demo.jpg)
 
@@ -37,11 +37,11 @@ If any of the above scares you — good. Stop here.
 
 | Item | Value |
 |------|-------|
-| **Confirmed vehicle** | **Ford Mondeo MK4 facelift (FL), 2011+** |
+| **Confirmed vehicles** | **Ford Mondeo MK4 facelift (FL), 2011+** (original test car) · **Ford S-Max** (independently confirmed on the vehicle by [@wojtkowiak](https://github.com/wojtkowiak), [#1](../../issues/1)) |
 | Cluster | Ford Convers+ IPC |
 | MCU | NXP MAC7116 (ARM7TDMI-S, Thumb, **big-endian**, ARMv4T) |
 | Firmware base | `0x5000` |
-| **Confirmed firmware** | **1412-FL**, VBF partition `CS7T-14C026-CD` |
+| **Confirmed firmware** | **1412-FL**, VBF partition `CS7T-14C026-CD` (Mondeo) · **1407**, `CS7T-10849-VE` (S-Max — string as reported by the tester; exact VBF/software part number to be confirmed) |
 | **Head unit (confirmed car)** | Blaupunkt **MCA**, with a discrete Bluetooth module (`C7ST-14D212`) that puts the metadata on the CAN bus |
 | Other vehicles / versions | **Untested.** Other Fords using the same Convers+ cluster may work. The patch is cluster-side, so what matters is that *some* module (a discrete BT module and/or the head unit) broadcasts the metadata on the bus — and on which ID (see [TESTING.md](docs/TESTING.md); use `--canid` if it differs). The patch scripts verify the exact bytes they expect at each hook site and **abort** if they don't match, so they will refuse to patch an incompatible image rather than corrupt it. |
 
@@ -151,12 +151,14 @@ Issues and PRs welcome — especially ports to other firmware versions (please i
 ## Thanks
 
 - **[@wojtkowiak](https://github.com/wojtkowiak)** — the first person outside this project to
-  put the patch through its paces. He rebuilt it against his own dump and verified it end to
-  end in the Unicorn emulator ([#1](../../issues/1)). He runs a Ford **S-Max** with the same
-  Convers+ cluster, keeps a JTAG-recoverable bench unit for exactly this kind of work, and is
-  putting together a dump/flash procedure that needs nothing but a Canable interface.
-  A confirmation from the car itself is still to come — when it does, the S-Max joins the
-  Compatibility table above.
+  verify the patch independently, and the first to confirm it **on a second car**. After
+  rebuilding it against his own dump and verifying it end to end in the Unicorn emulator, he
+  flashed it to his Ford **S-Max** (firmware **1407**, `CS7T-10849-VE`), where it works
+  ([#1](../../issues/1)). He keeps a JTAG-recoverable bench unit for exactly this kind of work
+  and is putting together a dump/flash procedure that needs nothing but a Canable interface.
+  The S-Max is now in the [Compatibility](#compatibility) table. His JTAG dump of the cluster
+  bootloader also settled a memory-safety question for the sibling
+  [convers-gauge-sweep](https://github.com/andrzejogh/convers-gauge-sweep) project — thanks!
 
 ## License
 
