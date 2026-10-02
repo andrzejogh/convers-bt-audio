@@ -4,7 +4,7 @@
 
 This project produces a patched firmware image. **It does not read from or write to your cluster** — you use your own dump/flash workflow for that. Community methods and hardware for Convers+ clusters are documented on the [microhacker forum](https://microhacker.denkdose.de/).
 
-> Confirmed on a **Ford Mondeo MK4 facelift (FL), 2011+** (firmware 1412-FL, partition `CS7T-14C026-CD`). Other vehicles/versions are unverified — the scripts will abort in Step 2/3 if the bytes don't match.
+> Confirmed on a **Ford Mondeo MK4 facelift (FL), 2011+** (firmware 1412-FL, partition `CS7T-14C026-CD`). Firmware 15.07 (`CS7T-14C026-CG`) is also confirmed on the same car. Any other version is refused in Step 2/3 before anything is written.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ Dump the full firmware **and** the EEPROM. Make at least two copies and verify t
 
 ## Step 1 — Get the code partition
 
-The patch operates on the program image based at `0x5000` (the `CS7T-14C026-CD` partition on the confirmed setup). If your dump is already that raw image, use it as `main.bin`. If you have a VBF, you can unpack it:
+The patch operates on the program image based at `0x5000` (the `CS7T-14C026-CD` partition on the confirmed setup, `CS7T-14C026-CG` for 15.07). If your dump is already that raw image, use it as `main.bin`. If you have a VBF, you can unpack it:
 
 ```bash
 python tools/vbf_tool.py unpack original.vbf main.bin
@@ -30,15 +30,20 @@ python tools/vbf_tool.py unpack original.vbf main.bin
 python tools/apply_patch_v3.py main.bin main_patched.bin
 ```
 
-Expected output (bytes may differ only if noted):
+Expected output on 14.12 (15.07 prints its own addresses):
 
 ```
-HOOK @0x236f6: f7 ff fc f5 (expected bl 0x230e4 = f7 ff fc f5) OK
-CAVE 296 B; bl->cave f0 5f fd a3
+version       : 14.12 (CS7T-14C026-CD; confirmed on cars (Mondeo MK4 FL, S-Max))
+  anchor size         : OK  1028096 B
+  anchor reader       : OK  @0x230e4
+  ...                   (11 anchors, all OK)
+CAN ID filter : 0x4b1
+HOOK @0x236f6: bl 0x230e4 -> bl 0x83240  (f0 5f fd a3)
+CAVE 296 B @0x83240 (fill 0x00); SRAM scratch 0x40009300..0x40009321
 Saved main_patched.bin
 ```
 
-If instead you see a **mismatch / assertion error**, your firmware version is different. **Stop.** The script deliberately refuses to patch an image it doesn't recognise rather than corrupt it. Open an issue with the version string and the bytes it reported.
+If instead you see **`REFUSED`**, your firmware version is not supported (or the file is not the code partition, or it is already patched — the message says which). **Stop.** The script deliberately refuses to patch an image it doesn't recognise rather than corrupt it. Open an issue with the lines it printed.
 
 ## Step 3 — Apply the renderer patch (19-char fields)
 
@@ -49,6 +54,7 @@ python tools/apply_render.py main_patched.bin main_patched.bin
 Expected:
 
 ```
+version 14.12 (CS7T-14C026-CD); renderer @ 0x1ce94
 guard @0x1ce96 ... OK
 guard @0x1ce8c ... OK
 @0x1cedc: 0xa819 -> 0xa810  (title sp+0x64 -> sp+0x40)

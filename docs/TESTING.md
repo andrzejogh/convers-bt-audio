@@ -17,7 +17,9 @@ This page covers #1. If injected frames show up but your phone's don't, the patc
 
 **Before touching the car at all**, you can answer "does the patch work on *my* dump?" on your desk. `tools/emulate.py` loads your firmware into a small ARM emulator, applies the patch to a throw-away copy exactly the way you'd flash it, injects a synthetic Bluetooth metadata frame on `0x4B1` (the same ISO-TP framing the real module sends), runs the **actual cluster code** that handles it, and reads back both the media store and the screen renderer to tell you — in plain language — whether the title/artist reached the display.
 
-No car, no CAN adapter, no PCAN. Your own `main.bin` (the `0x5000`-based code partition) is the only input, and it is never modified.
+No car, no CAN adapter, no PCAN. Your own `main.bin` (the `0x5000`-based code partition) is the only input, and it is never modified. It works on every supported version (14.12, 15.07) and tells you which one your dump is; an unsupported dump is refused with the list of anchors that did not match.
+
+Have a whole folder of firmware (VBFs and/or `.bin`)? `python tools/check_all.py <folder>` runs detection, patching, VBF repacking and this emulator A/B on every application image in it and prints one table.
 
 ### What you need
 
@@ -240,7 +242,7 @@ The IDs reported there, for reference:
 | Station names | `4B2`, `4B3`, `1E9` (FX/Travelpilot) | |
 | Active audio source → cluster | `1E6` | |
 
-**Which of these the cluster can actually receive** is a separate, firmware-side fact: the Convers+ acceptance table (`@0x79446`) only takes `4B1, 4B3, 4C0, 4C1, **4C6**, 4C7, 4D0, 4D2, 4D4, 4D5` (see [HOW_IT_WORKS.md §13](HOW_IT_WORKS.md)). So of the Bluetooth IDs above, **`4C6` is reachable** (and `--canid 0x4C6` can target it), but **`4C3` and `4B0` are not** — a head unit using those would need a mailbox reconfiguration this patch doesn't do. (This project's own car happens to use `4B1`, which is also in the table.)
+**Which of these the cluster can actually receive** is a separate, firmware-side fact: the Convers+ acceptance table (`@0x79446` in 14.12, `@0x79aa2` in 15.07 — same contents) only takes `4B1, 4B3, 4C0, 4C1, **4C6**, 4C7, 4D0, 4D2, 4D4, 4D5` (see [HOW_IT_WORKS.md §13](HOW_IT_WORKS.md)). So of the Bluetooth IDs above, **`4C6` is reachable** (and `--canid 0x4C6` can target it), but **`4C3` and `4B0` are not** — a head unit using those would need a mailbox reconfiguration this patch doesn't do. (This project's own car happens to use `4B1`, which is also in the table.)
 
 **1. Find your ID.** Capture the bus (recording in PCAN-View), play Bluetooth and skip a couple of tracks, and look across the `0x4Bx`/`0x4Cx` range for a frame whose text changes with the track. A title frame looks like:
 

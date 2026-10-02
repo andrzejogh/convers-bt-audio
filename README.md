@@ -10,7 +10,7 @@ The Convers+ cluster (MCU: NXP **MAC7116**) shows track metadata for USB and CD 
 - ✅ Robust: oversized or malformed metadata from the phone/BT module cannot overflow anything or crash the cluster
 - ✅ Ships as **patch scripts only** — you patch your *own* firmware dump; no Ford binaries are redistributed
 
-> **Confirmed on two cars:** Ford **Mondeo MK4 facelift (FL), 2011+** — Convers+ cluster, firmware **1412-FL** (`CS7T-14C026-CD`); and a Ford **S-Max**, firmware **1407** (`CS7T-10849-VE`), independently verified on the vehicle by [@wojtkowiak](https://github.com/wojtkowiak) ([#1](../../issues/1)). Other cars/versions that use the same Convers+ cluster may work, but are currently **unverified** (see [Compatibility](#compatibility)).
+> **Confirmed on two cars:** Ford **Mondeo MK4 facelift (FL), 2011+** — Convers+ cluster, firmware **1412-FL** (`CS7T-14C026-CD`); and a Ford **S-Max**, firmware **1412** (`CS7T-10849-VE`), independently verified on the vehicle by [@wojtkowiak](https://github.com/wojtkowiak) ([#1](../../issues/1)). Firmware **15.07** (`CS7T-14C026-CG`) is also confirmed, on the same Mondeo. Other cars/versions that use the same Convers+ cluster may work, but are currently **unverified** (see [Compatibility](#compatibility)).
 
 ![Convers+ BT Audio screen showing live Bluetooth track title and artist](docs/images/bt-audio-demo.jpg)
 
@@ -41,11 +41,45 @@ If any of the above scares you — good. Stop here.
 | Cluster | Ford Convers+ IPC |
 | MCU | NXP MAC7116 (ARM7TDMI-S, Thumb, **big-endian**, ARMv4T) |
 | Firmware base | `0x5000` |
-| **Confirmed firmware** | **1412-FL**, VBF partition `CS7T-14C026-CD` (Mondeo) · **1407**, `CS7T-10849-VE` (S-Max — string as reported by the tester; exact VBF/software part number to be confirmed) |
+| **Confirmed firmware** | **1412-FL**, VBF partition `CS7T-14C026-CD` (Mondeo) · **1412**, `CS7T-10849-VE` (S-Max — string as reported by the tester; exact VBF/software part number to be confirmed) · **15.07**, VBF partition `CS7T-14C026-CG` (Mondeo — same car as 1412-FL) |
 | **Head unit (confirmed car)** | Blaupunkt **MCA**, with a discrete Bluetooth module (`C7ST-14D212`) that puts the metadata on the CAN bus |
 | Other vehicles / versions | **Untested.** Other Fords using the same Convers+ cluster may work. The patch is cluster-side, so what matters is that *some* module (a discrete BT module and/or the head unit) broadcasts the metadata on the bus — and on which ID (see [TESTING.md](docs/TESTING.md); use `--canid` if it differs). The patch scripts verify the exact bytes they expect at each hook site and **abort** if they don't match, so they will refuse to patch an incompatible image rather than corrupt it. |
 
 If you have a different firmware version and the scripts abort, please open an issue with your version string — the offsets can usually be ported.
+
+### Tested against the whole firmware family (2026-09-23)
+
+`tools/check_all.py` was run over the complete set of Convers+ firmware we have — 47 VBFs
+(Mondeo, S-Max, Transit, pre-facelift and 2007–2010 clusters) plus the dump of the confirmed car.
+For every application image it identifies the version, builds the patch in memory, checks that
+nothing outside the hook, the cave and the five renderer sites changes, checks that the two
+scripts give the same result in either order, repacks the VBF, and runs the emulator A/B.
+
+| Firmware (banner) | Image | Result |
+|---|---|---|
+| **14.12** | `CS7T-14C026-CD` (+ the car dump) | ✅ **supported** — patched on the cars; build byte-identical to the flashed image; emulator A/B PASS |
+| **15.07** | `CS7T-14C026-CG` | ✅ **supported** — own table entry; emulator A/B PASS; patched on the car (Mondeo) |
+| 14.11 | `CS7T-14C026-CC` | ⏳ not supported yet — same code as 14.12, but its data tables (PERBUS, DLIST, SRAM) are elsewhere; the easiest port |
+| 12.18 / 13.02 / 13.04 (Transit) | `BS7T-14C026-CE/CF/CG` | ⏳ not supported yet — same product family (full audio menus incl. *BT Audio*), different addresses; a port needs its own measurements |
+| 11.18 / 11.22 (pre-FL) | `AM2T-14C026-CD/CF` | ⏳ not supported yet — as above |
+| 10.05 / 10.07 / 10.10 | `8M2T-14C026-CD/CE/CF` | ⏳ not supported yet — as above |
+| early 8M2T (`D6.01` / `08.11` / `08.15`) | `8M2T-14C026-CA/CB/ZB` | ❌ no *BT Audio* screen in this firmware (the menu text is absent) — nothing to fix |
+| 04.02 / 01.02 (Transit) | `BS7T-14C026-GD/GE` | ❌ no audio screens in this firmware (no audio menu texts) — nothing to fix |
+| 512 KB images at `0x780000` / `0x740000`, and `8M2T-14C026-AC/AD/DC/DD` | `…-AC/AD/AE/AF/BC/BD/BE/BF/DC/DD/DE` | not a Convers+ application image (a different memory map, apparently another cluster type with a different MCU) — out of scope |
+| GFX, bootloader | remaining VBFs | not an application image — skipped |
+
+"⏳ not supported yet" means the scripts refuse the image today; nobody has measured its table
+entry. It does not mean the patch cannot work there.
+
+Every version needs its own measured table entry (`tools/fw_versions.py`); the scripts never
+guess, and an image that matches no entry is refused before anything is written.
+
+**Test your own collection** (a folder of `.vbf` and/or `.bin`, searched recursively):
+```bash
+pip install unicorn
+python tools/check_all.py path/to/firmware-folder --json report.json
+```
+Add `--out DIR` to also save the patched `.bin`/`.vbf` of every supported image.
 
 ---
 
@@ -87,7 +121,7 @@ Community resources for dumping and flashing Convers+ clusters can be found on t
 ```bash
 python tools/apply_patch_v3.py main.bin main_patched.bin
 ```
-The script prints the hook it found and asserts it matches before writing. If it aborts with a mismatch, your firmware version differs — stop and open an issue.
+The script recognises your firmware version from the image bytes and checks every anchor before writing. If it says `REFUSED`, your firmware version is not supported (yet) — stop and open an issue with the lines it printed. The two patch scripts may be run in either order.
 
 **3. Apply the renderer patch (19-character fields):**
 ```bash
@@ -110,7 +144,7 @@ python tools/vbf_tool.py pack original.vbf main_patched.bin main_patched.vbf
 - Handles **`4B1` only** (not `4B0`). The two carry the same text but interleave at the frame level; processing both corrupts the shared reassembly buffer. `4B1` alone is complete.
 - **Robust against bad input.** The reassembly is bounded by a single clamp plus a per-frame guard, so oversized (even 250-char), unterminated, orphaned or garbage frames from the BT module are safely truncated or ignored — they cannot overflow the scratch buffer, corrupt neighbouring fields, or crash the cluster. See [HOW_IT_WORKS.md §11](docs/HOW_IT_WORKS.md).
 - **Album** is reassembled too, but many clusters don't show an album field on the BT screen.
-- Tested on one firmware variant (see Compatibility).
+- Confirmed on cars with 14.12 (Mondeo, S-Max) and 15.07 (Mondeo); any other version is refused (see Compatibility).
 
 ---
 
@@ -118,11 +152,13 @@ python tools/vbf_tool.py pack original.vbf main_patched.bin main_patched.vbf
 
 ```
 tools/
-  apply_patch_v3.py    CAN 4B1 → media store code cave (hook @0x236f6, cave @0x83240)
-  apply_render.py      BT Audio renderer patch (relocates the title buffer)
+  fw_versions.py       the table of supported firmware versions + image fingerprint (one place for every address)
+  apply_patch_v3.py    CAN 4B1 → media store code cave (version auto-detected, refuses unknown images)
+  apply_render.py      BT Audio renderer patch (19-character fields)
   vbf_tool.py          VBF pack/unpack (CRC16-CCITT + CRC32)
   make_test_frames.py  generate/send CAN 0x4B1 test frames to verify the cluster
   emulate.py           run the patch on your own dump in an emulator (no car needed)
+  check_all.py         run the whole pipeline (detect, patch, repack, emulate) over a folder of firmware
 docs/
   HOW_IT_WORKS.md      full reverse-engineering write-up
   FLASHING.md          dump → patch → pack → flash walkthrough
@@ -153,12 +189,20 @@ Issues and PRs welcome — especially ports to other firmware versions (please i
 - **[@wojtkowiak](https://github.com/wojtkowiak)** — the first person outside this project to
   verify the patch independently, and the first to confirm it **on a second car**. After
   rebuilding it against his own dump and verifying it end to end in the Unicorn emulator, he
-  flashed it to his Ford **S-Max** (firmware **1407**, `CS7T-10849-VE`), where it works
+  flashed it to his Ford **S-Max** (firmware **1412**, `CS7T-10849-VE`), where it works
   ([#1](../../issues/1)). He keeps a JTAG-recoverable bench unit for exactly this kind of work
   and is putting together a dump/flash procedure that needs nothing but a Canable interface.
   The S-Max is now in the [Compatibility](#compatibility) table. His JTAG dump of the cluster
   bootloader also settled a memory-safety question for the sibling
   [convers-gauge-sweep](https://github.com/andrzejogh/convers-gauge-sweep) project — thanks!
+  Thanks also for sharing a full cluster emulator, and for preparing the first port of this
+  patch to firmware **15.07**. The 15.07 support released here builds on that work; the one
+  difference is the SRAM scratch: that port uses `0x40009880`, while we decided to derive the
+  location differently and keep the offset inside the stock media-message buffer that is proven
+  on the car with 14.12, which gives `0x40009320` on 15.07 (see
+  [HOW_IT_WORKS.md §14](docs/HOW_IT_WORKS.md#14-other-firmware-versions)).
+- **[@sccsltd](https://github.com/sccsltd)** — for sharing firmware images used to test the patch
+  across versions.
 
 ## License
 

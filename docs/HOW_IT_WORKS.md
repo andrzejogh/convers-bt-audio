@@ -2,7 +2,7 @@
 
 Target: Ford Convers+ instrument cluster, MCU **NXP MAC7116** (ARM7TDMI-S, Thumb-1, **big-endian**, ARMv4T), program firmware based at `0x5000`. All addresses below are in the MCU memory map; file offset into the code partition = `address − 0x5000`.
 
-Confirmed and tested on a **Ford Mondeo MK4 facelift (FL), 2011+** (firmware 1412-FL, partition `CS7T-14C026-CD`). The offsets in this document are from that image.
+Confirmed and tested on a **Ford Mondeo MK4 facelift (FL), 2011+** (firmware 1412-FL, partition `CS7T-14C026-CD`). The offsets in this document are from that image. Firmware **15.07** (`CS7T-14C026-CG`), also confirmed on the car, runs the same code at different addresses — see [§14](#14-other-firmware-versions); every address of every supported version lives in `tools/fw_versions.py`.
 
 ## 1. The metadata protocol
 
@@ -34,7 +34,7 @@ Crucially, the **downstream** media pipeline works fine for source `0x12` (Bluet
 
 **Hook:** at `0x236f6`, replace `bl 0x230e4` with `bl 0x83240` (the cave). This site is **before** the mailbox is split by type (`FUN_0x236cc`), so it sees **every** received frame (type 1/2/3). The cave calls the original `0x230e4` (which returns the mailbox number `mb`), does its work, and returns `mb` — fully transparent to the caller.
 
-**Cave** at `0x83240` (296 bytes). SRAM scratch: `BUF=0x40009300` (24 B), `SLEN=0x40009318`, `SIDX=0x40009319`, `SBUS=0x40009320`.
+**Cave** at `0x83240` (296 bytes). SRAM scratch: `BUF=0x40009300` (24 B), `SLEN=0x40009318`, `SIDX=0x40009319`, `SBUS=0x40009320`. The scratch lies +0x22 into the stock 500-byte media-message buffer (`0x400092D2 + 0xC`), which the stock ISO-TP media path fills and hands straight to the media dispatcher. It is shared memory, not free memory (there is no genuinely unused run in `.bss`); see §14 for why this placement is kept in every version and for its known theoretical side effect.
 
 1. Save bus, call `0x230e4` → `mb`, save `mb`.
 2. `mailbox = *(0x7a0d4 + bus*4) + mb*16 + 0x80`; data at `mailbox+8`; `CAN-ID = (*(mb+4) >> 18) & 0x7FF`.
@@ -132,7 +132,7 @@ Everything was validated in a [Unicorn](https://www.unicorn-engine.org/) emulato
 
 Different head units put Bluetooth metadata on different CAN IDs. The forum research documents several (USB `4C7`; Bluetooth `4C3`/`4C6`; Bluetooth music `4B0`; radiotext/nav `4C1`; station names `4B2`/`4B3`/`1E9`; active-source `1E6`) and consistently attributes the sending to the **head unit / satnav** — "these are only my findings with an MCA", "fx sends … via 1E6", "Travelpilot sends station name on 1E9" — each unit using a fixed ID in its own firmware, with no negotiation ([microhacker t=127](https://microhacker.denkdose.de/viewtopic.php?t=127)). (A discrete Bluetooth module also exists on some cars — part `C7ST-14D212`, [t=157](https://microhacker.denkdose.de/viewtopic.php?t=157); one user "disconnected the BT module" and found MM-CAN went quiet, [t=372](https://microhacker.denkdose.de/viewtopic.php?t=372) — so *which* box drives the CAN line can vary by config; on the cluster side it doesn't matter, the patch just reads whatever is on the bus.) `apply_patch_v3.py --canid 0xNNN` retargets the single ID literal the cave compares against. Whether that helps depends on two firmware facts established here.
 
-**The cluster only receives a fixed set of IDs.** A CAN acceptance table lives at `0x79446`; it holds the standard IDs the cluster takes into a mailbox:
+**The cluster only receives a fixed set of IDs.** A CAN acceptance table lives at `0x79446` (15.07: `0x79AA2`, identical contents); it holds the standard IDs the cluster takes into a mailbox:
 
 ```
 4B1, 4B3, 4C0, 4C1, 4C6, 4C7, 4D0, 4D2, 4D4, 4D5
@@ -143,3 +143,49 @@ An ID **not** in this table is dropped by the FlexCAN acceptance filter before i
 **The hook runs before any ID routing.** `FUN_0x236cc` dispatches purely by mailbox: it reads the hardware `IFLAG` (`FlexCAN_base + 0x30`), masks it with the per-bus enabled-mailbox mask, clears bit 14, and for each pending mailbox calls `0x230e4` (our hook site) to get `mb`, *then* routes by `type_table[bus*32 + mb]`. The ID-keyed routing (a separate function at `0x23690` using the table near `0x79490`) happens elsewhere and does **not** gate our hook. So the cave sees **every** pending mailbox except #14 — regardless of ID or of what the stock routing would decide.
 
 **Consequence.** Any ID in the acceptance table reaches the cave. `--canid 0x4C6` was verified end-to-end in the emulator (reassembles + displays on `0x4C6`, ignores `0x4B1`/`0x4C7`), and the default build (`0x4B1`) stays byte-for-byte identical. The one thing static analysis can't settle is whether a given ID's mailbox happens to be #14 or outside the enabled mask — unlikely for a media ID that sits in the same table as the working `4B1`/`4C7`, but only real hardware can confirm a non-default ID. Hence `--canid` is documented as **experimental**.
+
+## 14. Other firmware versions
+
+The patch is the same program in every version; only addresses change, and they change by
+**different** amounts (reader/dispatcher +0xBC, PERBUS +0x65C, DLIST +0x6A8, renderer +0x92,
+media store +0x24 between 14.12 and 15.07). So every version gets its own measured entry in
+`tools/fw_versions.py`, and an image is accepted only if it matches **every** anchor of exactly
+one entry: the reader (80-byte signature), the dispatcher bytes around the hook, the renderer
+prologue and epilogue, the PERBUS table, the BT field-handler list, and the SRAM literals of the
+handler-select word and the media store. Code alone is not enough — 14.11 (`CS7T-14C026-CC`) has
+the 14.12 code byte for byte, but its data tables are elsewhere, so it is refused.
+
+| | 14.12 `CS7T-14C026-CD` | 15.07 `CS7T-14C026-CG` |
+|---|---|---|
+| hook (`bl reader` in the RX dispatcher) | `0x236f6` → reader `0x230e4` | `0x237b2` → reader `0x231a0` |
+| cave | `0x83240` (zero run) | `0xdde00` (inside the `0xEF` linker fill `0xd7d78..0xffff8`) |
+| PERBUS / field-handler list | `0x7a0d4` / `0x8eff0` | `0x7a730` / `0x8f698` |
+| handler-select / BT store | `0x40009abc` / `0x4000a6b4` | `0x40009adc` / `0x4000a6d8` |
+| **cave scratch** | `0x40009300` | **`0x40009320`** |
+| BT Audio renderer | `0x1ce94` | `0x1cf26` |
+| acceptance table | `0x79446` | `0x79aa2` |
+
+The 15.07 reader, dispatcher, renderer, stock media dispatcher and all nine field handlers were
+compared instruction by instruction with 14.12: identical apart from call targets and literal
+values, which map onto the table above.
+
+**The scratch is the one thing you must not port by "finding free RAM".** An emulator run that
+never writes to an address does not prove the address is free — some firmware state machines
+write only on particular screens. The earlier 15.07 port by
+[@wojtkowiak](https://github.com/wojtkowiak) placed the scratch at `0x40009880`, chosen from the
+SRAM writes measured in the emulator. We decided to derive the location differently: rather than
+look for an address that appears unused, the released tables keep the placement that is proven on
+the car with 14.12 — the same offset inside the stock media-message buffer, which in 15.07 sits at `0x400092F2`
+(everything in that area moved by +0x20). It is still shared memory, with two effects:
+a stock media message arriving in the middle of a `0x4B1` reassembly can spoil *our* partial
+text (the next `0x4B1` update repairs it); and, seen in the emulator only, `SBUS` — written on
+every received CAN frame at buffer `+0x42`/`+0x43` — overwrites bytes 66–67 of a stock `0x4C1`
+message longer than 67 bytes while it is being received (e.g. a CD track list page). The second
+effect has **not** been observed on a car (Bluetooth and USB are not affected: USB uses another
+buffer). Keeping `SBUS` in a register instead of SRAM would remove it. The heap/stack-guard area above `.bss` is not free
+either: the firmware paints it and periodically checks it (stack-overflow detector at `0x15252`).
+
+To add a version: measure every field of a `fw_versions.py` entry on the new image (check the
+scratch statically: which code references the buffer and how far its structures extend), then
+run `tools/check_all.py` over your firmware collection — the new image must come out `PASS`
+and every other image must keep its verdict.
