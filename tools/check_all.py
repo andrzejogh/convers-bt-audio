@@ -11,11 +11,12 @@ For every VBF / BIN found (recursively) it:
   3. identifies the version (fw_versions.py) - an unsupported image must be REFUSED, and the
      report says which anchors failed against which version;
   4. for a supported image: builds the patch in memory exactly as apply_patch_v3.py +
-     apply_render.py would, checks that NOTHING outside the hook, the cave and the five renderer
-     sites changed, runs both scripts again in the reverse order (must give the same bytes),
-     repacks the VBF and re-validates its checksums;
+     apply_render.py would, checks that NOTHING outside the hook, the cave, the five renderer
+     sites and the flash self-test balancing word changed, runs both scripts again in the reverse
+     order (must give the same bytes), checks that the image adds up to 0 (the firmware's flash
+     self-test), repacks the VBF and re-validates its checksums;
   5. runs the emulator A/B self-test (emulate.py): stock drops the frame, patched shows it,
-     a wrong CAN ID is ignored.
+     a wrong CAN ID is ignored, and the firmware's own flash self-test accepts the image.
 
 Nothing is written next to your files; with --out DIR the patched .bin/.vbf are saved there.
 Identical payloads (e.g. a VBF and its already-unpacked .bin) are tested once.
@@ -79,6 +80,7 @@ def collect(paths):
 def allowed_ranges(c, cave_len):
     r = [(c["HOOK"], 4), (c["CAVE"], cave_len)]
     r += [(a, 2) for a in c["RENDER_SITES"]]
+    r += [(c["SUM_WORD"], 4)]                       # flash self-test balancing word
     return [(a - FV.BASE, a - FV.BASE + n) for a, n in r]
 
 
@@ -118,10 +120,10 @@ def check_image(it, canid, emulate, out_dir, verbose):
             stray = [i for i in range(len(data)) if data[i] != patched[i]
                      and not any(a <= i < b for a, b in ranges)]
             if stray:
-                raise AssertionError(f"{len(stray)} bytes changed outside hook/cave/renderer, "
+                raise AssertionError(f"{len(stray)} bytes changed outside hook/cave/renderer/word, "
                                      f"first @{stray[0] + FV.BASE:#x}")
             ndiff = sum(1 for i in range(len(data)) if data[i] != patched[i])
-            steps.append(f"{ndiff} B changed, all inside hook/cave/renderer")
+            steps.append(f"{ndiff} B changed, all inside hook/cave/renderer/balancing word")
             # applying again must be refused / a no-op
             try:
                 apply_patch_v3.patch(patched, canid, log=log)
@@ -146,6 +148,11 @@ def check_image(it, canid, emulate, out_dir, verbose):
                         raise AssertionError("repacked VBF fails its own checksum validation")
                     steps.append(f"saved {os.path.basename(base)}.vbf")
             row["status"] = "OK-BUILD"
+        # the firmware's flash self-test must pass on what would be flashed
+        ok, text = FV.sum_report(patched, c)
+        if not ok:
+            raise AssertionError(text)
+        steps.append(text)
         if emulate:
             import emulate as EMU
             res = EMU.selftest(patched if state["cave"] != "patched" else data, canid=canid,

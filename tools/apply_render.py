@@ -41,6 +41,13 @@ class Refused(Exception):
     """The image is not one we can patch; nothing was written."""
 
 
+def _balance(before, after, c, log):
+    try:
+        return FV.balance(before, after, c, lambda s: log("  " + s))
+    except ValueError as e:
+        raise Refused(str(e))
+
+
 def find_sites(d):
     """Structural search, independent of the version table: every place with five `A819` at the
     renderer spacings plus the frame/epilogue guards. Returns a list of renderer addresses."""
@@ -60,7 +67,8 @@ def find_sites(d):
 
 def patch(data, log=print):
     """Relocate the title buffer in a copy of `data`. Returns (patched bytes, version, changed).
-    `changed` is False when the renderer was already patched (output == input)."""
+    `changed` is False when there was nothing to do (output == input). The last step balances
+    the firmware's flash self-test (fw_versions.balance) - also on an already patched image."""
     v, state, reports = FV.identify(data)
     if v is None:
         raise Refused(FV.explain_refusal(data, reports))
@@ -68,7 +76,8 @@ def patch(data, log=print):
     log(f"  version {v} ({c['part']}); renderer @ {c['RENDERER']:#x}")
     if state["render"] == "patched":
         log("  renderer already patched (all 5 sites are add r0,sp,#0x40) - nothing to do")
-        return bytes(data), v, False
+        out = _balance(data, data, c, log)      # an image patched by an older tool gets balanced
+        return out, v, out != bytes(data)
     hits = find_sites(data)
     if hits != [c["RENDERER"]]:
         raise Refused(f"structural renderer search found {[hex(h) for h in hits]}, "
@@ -85,7 +94,7 @@ def patch(data, log=print):
             raise Refused(f"@{addr:#x}: {got:#06x} != {OLD:#06x} (add r0,sp,#0x64)")
         d[addr - FV.BASE:addr - FV.BASE + 2] = struct.pack('>H', NEW)
         log(f"  @{addr:#x}: {OLD:#06x} -> {NEW:#06x}  (title sp+0x64 -> sp+0x40)")
-    return bytes(d), v, True
+    return _balance(data, d, c, log), v, True
 
 
 def main(argv=None):

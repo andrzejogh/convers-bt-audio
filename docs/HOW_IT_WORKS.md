@@ -189,3 +189,48 @@ To add a version: measure every field of a `fw_versions.py` entry on the new ima
 scratch statically: which code references the buffer and how far its structures extend), then
 run `tools/check_all.py` over your firmware collection — the new image must come out `PASS`
 and every other image must keep its verdict.
+
+## 15. The flash self-test (why the tools write one more word)
+
+The cluster checks its own flash while it runs. A periodic task (14.12 `0x424B8`, 15.07 `0x42230`)
+walks the whole flash, `0x000000..0x0FFFFF`, in 32 blocks of `0x8000` bytes — one block per pass —
+and adds everything up as 32-bit big-endian words. When the last block is done the total must be
+**0**; then the walk starts again.
+
+| | 14.12 `CS7T-14C026-CD` | 15.07 `CS7T-14C026-CG` |
+|---|---|---|
+| start (total = 0, 32 blocks to go) | `0x218F0` | `0x21994` |
+| done? | `0x218FC` | `0x219A0` |
+| add one block | `0x2190C` | `0x219B0` |
+| verdict (total == 0) | `0x2193A` | `0x219DE` |
+| result flags (bit 1 = flash sum wrong) | `0x40008664` | `0x4000867C` |
+
+The four routines are byte-identical in both versions. The factory application image
+(`0x5000..0x100000`) adds up to exactly 0 on its own — true for every stock FL image we have
+(14.11, 14.12, 15.07).
+
+**Any patch changes the total.** The verdict then fails, bit 1 of the result flags is set, the
+cluster raises its internal-fault code and changes a status bit it transmits on CAN (15.07: byte 3
+bit 4 of `0x230`, `0x69` → `0x79` in the emulator). On the car this showed up as DTC **U3000** in
+the cluster and **"ACC not available"** a few seconds after start — about the time the 32 passes
+take. The Bluetooth display itself works either way, which is why it went unnoticed at first.
+
+**The fix** keeps the test and makes it pass: as their last step both apply scripts call
+`fw_versions.balance()`, which sets one word of unused linker fill (`0x0F0FFC`, `EF EF EF EF` in
+stock) so that the image adds up to 0 again. The word is unique for a given image, so the two
+scripts still give the same bytes in either order. `check_all.py` asserts the sum, and
+`emulate.py` runs the firmware's **own** four routines over the patched image and reports the
+verdict (line `FLASH`).
+
+**Images with the test switched off.** Some modified images disable the check instead: the `bne`
+in "done?" is replaced by a nop (14.12 `0x21902`: `d1 01` → `46 c0`), so every pass ends before it
+adds anything and the total stays 0. The original Mondeo test image was built on such a base — the
+patch ran there for months with adaptive cruise control working, and that is why the problem only
+appeared on a factory image. The tools recognise this, leave such an image untouched, and say so.
+The default 14.12 build on that base is still byte-identical to the image flashed on the car.
+
+**What is confirmed where.** 15.07: unbalanced builds gave U3000 / "ACC not available" on the
+Mondeo; a balanced build (same balancing word, same address, built from the same stock image)
+has been driven for 500 km with adaptive cruise control and no faults. 14.12 on a *factory* image:
+emulator only — a full boot shows the flash bit set without the word and clear with it, exactly
+as on 15.07, but no car has run that build yet.

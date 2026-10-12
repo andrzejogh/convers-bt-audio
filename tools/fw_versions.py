@@ -32,6 +32,17 @@ Rules this table follows
   the emulator. We derive the scratch differently - by the media-buffer offset proven on the car
   with 14.12 - so the two ports differ only in this address.)
 
+Flash self-test
+---------------
+The firmware checks its own flash in the background: 32 blocks of 0x8000 B (0x000000..0x0FFFFF),
+one block per pass of a periodic task, added up as 32-bit big-endian words (SUM_STEP); the total
+must be 0 (SUM_OK). The factory application image alone adds up to exactly 0. Any patch changes
+the total, the test fails, the cluster stores DTC U3000 and flags an internal fault on CAN - on a
+car with adaptive cruise control: "ACC not available" a few seconds after start. So the last step
+of both apply scripts is balance(): one word of linker fill (SUM_WORD) is set so that the image
+adds up to 0 again. Some modified images have the test switched off instead (the `bne` in
+SUM_DONE replaced by a nop, so the pass ends before it adds anything); those are left as they are.
+
 Adding a version: measure every field below on the new image, add an entry, then run
 check_all.py over your firmware folder - it must report the new image as supported and pass the
 emulator A/B, and every other image must keep its previous verdict.
@@ -61,6 +72,16 @@ ACCEPT_TABLE = bytes.fromhex(      # CAN acceptance table: the IDs the cluster t
     "ffff04c604c7ffffffffffffffffffffffffffffffff04d0ffff04d2ffff04d404d5")
 ACCEPTED_IDS = (0x4B1, 0x4B3, 0x4C0, 0x4C1, 0x4C6, 0x4C7, 0x4D0, 0x4D2, 0x4D4, 0x4D5)
 
+# Flash self-test: start / done? / one block / verdict - 90 B, byte-identical in every supported
+# version, checked AT SUM_START. Bytes 0x12..0x13 are the `bne` of "done?": stock d1 01, or 46 c0
+# (nop) in images that have the test switched off.
+SUM_SIG = bytes.fromhex(
+    "494120006008202060484770483e68402800d1012001477020004770b4304d3a686a1e5403e0210103c9184321"
+    "002a00d009e0026802185130044298d3fa682818406028606cbc304770482f68002800d1012001477020004770")
+SUM_BNE = (0x12, bytes.fromhex("d101"), bytes.fromhex("46c0"))
+SUM_REL = dict(SUM_DONE=0x0C, SUM_STEP=0x1C, SUM_OK=0x4A)      # relative to SUM_START
+SUM_FILL = b"\xEF\xEF\xEF\xEF"
+
 # Renderer: the 5 `add r0,sp,#0x64` title references, relative to RENDERER
 RENDER_SITES_REL = (0x48, 0x6A, 0x86, 0x9E, 0xB6)
 RENDER_OLD, RENDER_NEW = 0xA819, 0xA810      # add r0,sp,#0x64  ->  add r0,sp,#0x40
@@ -84,6 +105,8 @@ VERSIONS = {
         RENDERER=0x1CE94,      # BT Audio screen renderer
         STATUS=0x40007414,     # BT status block: +4 song number (u32), +9 flags (u8)
         ACCEPT=0x79446,        # CAN acceptance table
+        SUM_START=0x218F0,     # flash self-test routines (see the module docstring)
+        SUM_WORD=0xF0FFC,      # balancing word: inside the 0xEF linker fill 0xD7430..0xFFFF8
         DLIST_PAT=bytes.fromhex(
             "003f00000006c90d004200000006c9dd004300000006caab004400000006cb79"
             "004500000006cc57004600000006cd21003e00000006ce37003d00000006d099"
@@ -103,6 +126,8 @@ VERSIONS = {
         RENDERER=0x1CF26,
         STATUS=0x40007424,
         ACCEPT=0x79AA2,
+        SUM_START=0x21994,
+        SUM_WORD=0xF0FFC,      # inside the 0xEF linker fill 0xD7D78..0xFFFF8
         DLIST_PAT=bytes.fromhex(
             "003f00000006c795004200000006c865004300000006c933004400000006ca01"
             "004500000006cadf004600000006cba9003e00000006ccbf003d00000006cf21"
@@ -132,6 +157,8 @@ def cfg(version):
     c["STATUS_SONGNO"] = c["STATUS"] + 4
     c["STATUS_FLAGS"] = c["STATUS"] + 9
     c["STORE_TITLE"] = c["STORE"] + STORE_FIELDS["title"]
+    for k, o in SUM_REL.items():
+        c[k] = c["SUM_START"] + o
     return c
 
 
@@ -166,6 +193,65 @@ def part_numbers(data):
 
 
 # ---------------------------------------------------------------------------------------------
+def rom_sum(data):
+    """What the firmware's flash self-test adds up over the application image (must be 0)."""
+    n = len(data) // 4
+    return sum(struct.unpack(f">{n}I", bytes(data[:n * 4]))) & 0xFFFFFFFF
+
+
+def selftest_state(data, c):
+    """'on' (stock), 'off' (the test is switched off in this image) or None (not recognised)."""
+    got = at(data, c["SUM_START"], len(SUM_SIG))
+    if got is None:
+        return None
+    o, on, off = SUM_BNE
+    if got[:o] != SUM_SIG[:o] or got[o + 2:] != SUM_SIG[o + 2:]:
+        return None
+    return "on" if got[o:o + 2] == on else "off" if got[o:o + 2] == off else None
+
+
+def sum_report(data, c):
+    """(ok, text): would this image pass the firmware's flash self-test?"""
+    st = selftest_state(data, c)
+    if st == "off":
+        return True, "flash self-test is switched off in this image"
+    if st is None or len(data) != IMAGE_SIZE:
+        return False, "flash self-test routine not recognised"
+    s = rom_sum(data)
+    return s == 0, ("flash self-test sum 0" if s == 0 else
+                    f"flash self-test sum {s:#010x}, must be 0 - the car will log U3000 and "
+                    f"report 'ACC not available'; run apply_render.py on this image to balance it")
+
+
+def balance(before, after, c, log=print):
+    """Last step of every apply script: make `after` add up to 0 again, as `before` did.
+
+    Returns the image (unchanged when there is nothing to do). Raises ValueError when the image
+    cannot be balanced safely. Only the 4 bytes at SUM_WORD are ever written; the word is unique
+    for a given image, so the apply scripts give the same result in either order."""
+    st = selftest_state(after, c)
+    if st is None or len(after) != IMAGE_SIZE:
+        raise ValueError(f"the flash self-test routine @{c['SUM_START']:#x} is not the expected one")
+    if st == "off":
+        log("flash self-test: switched off in this image - no balancing needed")
+        return bytes(after)
+    if rom_sum(after) == 0:
+        log("flash self-test: image adds up to 0 - OK")
+        return bytes(after)
+    o = c["SUM_WORD"] - BASE
+    cur = bytes(after[o:o + 4])
+    if rom_sum(before) != 0 and cur != SUM_FILL:
+        raise ValueError(f"the input image does not add up to 0 and the balancing word "
+                         f"@{c['SUM_WORD']:#x} is in use ({cur.hex(' ')})")
+    word = (struct.unpack(">I", cur)[0] - rom_sum(after)) & 0xFFFFFFFF
+    out = bytes(after[:o]) + struct.pack(">I", word) + bytes(after[o + 4:])
+    assert rom_sum(out) == 0
+    if rom_sum(before) != 0:
+        log("flash self-test: the INPUT image did not add up to 0 (patched with an older tool?)")
+    log(f"flash self-test: balancing word {word:#010x} @{c['SUM_WORD']:#x} - image adds up to 0")
+    return out
+
+
 def probe(data, version):
     """Check every anchor of `version` against the image.
 

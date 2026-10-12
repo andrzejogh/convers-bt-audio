@@ -233,6 +233,22 @@ def inject_and_read(image, c, inject_canid, title, artist, run_renderer=False, t
     return store, renderer
 
 
+def flash_selftest(image, c):
+    """Run the firmware's OWN flash self-test on `image`: start, one block per call until it
+    reports done, then its verdict. True = the cluster will accept this flash content. (The
+    bootloader area below 0x5000 is not part of a dump; it is left as zeros here, and the factory
+    application adds up to 0 by itself.)"""
+    e = Emu(image)
+    e.call(c["SUM_START"])
+    for _ in range(64):
+        if e.call(c["SUM_DONE"]):
+            break
+        e.call(c["SUM_STEP"])
+    else:
+        return False
+    return bool(e.call(c["SUM_OK"]))
+
+
 def control_canid(canid):
     """A different, deliberately non-matching CAN ID for the negative control. 0x4B0 carries
     the same Bluetooth text as 0x4B1 but the cave filters it out on purpose - perfect to prove
@@ -269,7 +285,8 @@ def revert_to_stock(data, c):
 def rule(ch="-", log=print): log(ch * 72)
 
 
-def verdict(c, stock_store, patched_store, renderer, ctrl_store, ctrl_id, title, artist, canid, log=print):
+def verdict(c, stock_store, patched_store, renderer, ctrl_store, ctrl_id, title, artist, canid, log=print,
+            flash_ok=True):
     want = {k: v for k, v in (("title", title), ("artist", artist)) if v}
     log("")
     log(f"  Same 0x{canid:03X} frame, same method, driven through the real hook @0x{c['HOOK_SITE']:x}:")
@@ -298,7 +315,16 @@ def verdict(c, stock_store, patched_store, renderer, ctrl_store, ctrl_id, title,
     log(f"  CONTROL wrong 0x{ctrl_id:03X}  title={ctrl_store['title']!r}  artist={ctrl_store['artist']!r}"
         f"   -> {'PASS (correctly ignored)' if ctrl_empty else 'FAIL (leaked!)'}")
 
+    log(f"  FLASH   the firmware's own flash self-test on the patched image"
+        f"   -> {'PASS (adds up to 0)' if flash_ok else 'FAIL'}")
+
     log("")
+    if stock_empty and filled and ctrl_empty and render_ok is not False and not flash_ok:
+        log("  RESULT: FAIL - the patch itself works, but this image does not pass the cluster's")
+        log("          flash self-test: on the car it stores DTC U3000 and adaptive cruise control")
+        log("          reports 'ACC not available'. It was patched with an older version of the")
+        log("          tools. Run apply_render.py on it (it balances the image) and flash again.")
+        return False
     ok = stock_empty and filled and ctrl_empty and render_ok is not False
     if ok:
         log("  RESULT: PASS - the patch is what makes the difference: the identical Bluetooth")
@@ -389,9 +415,12 @@ def selftest(data, canid=0x4B1, title="PATCH TEST", artist="CANBUS", trace=False
     ctrl_id = control_canid(canid)
     ctrl_store, _ = inject_and_read(patched_img, c, ctrl_id, title, artist, run_renderer=False)
 
+    flash_ok = flash_selftest(patched_img, c)
+
     res["ok"] = verdict(c, stock_store, patched_store, renderer, ctrl_store, ctrl_id,
-                        title, artist, canid, log=log)
-    res["results"] = dict(stock=stock_store, patched=patched_store, renderer=renderer, control=ctrl_store)
+                        title, artist, canid, log=log, flash_ok=flash_ok)
+    res["results"] = dict(stock=stock_store, patched=patched_store, renderer=renderer, control=ctrl_store,
+                          flash_selftest=flash_ok)
     if not res["ok"]:
         res["reason"] = "A/B failed"
     return res

@@ -40,8 +40,15 @@ version       : 14.12 (CS7T-14C026-CD; confirmed on cars (Mondeo MK4 FL, S-Max))
 CAN ID filter : 0x4b1
 HOOK @0x236f6: bl 0x230e4 -> bl 0x83240  (f0 5f fd a3)
 CAVE 296 B @0x83240 (fill 0x00); SRAM scratch 0x40009300..0x40009321
+flash self-test: balancing word 0x072f7020 @0xf0ffc - image adds up to 0
 Saved main_patched.bin
 ```
+
+The `flash self-test` line is the tool keeping the cluster's own flash check passing (one word of
+unused fill at `0x0F0FFC`; without it the cluster stores DTC U3000 and a car with adaptive cruise
+control reports "ACC not available" — [HOW_IT_WORKS.md §15](HOW_IT_WORKS.md)). The word's value
+depends on your image. On an image that has the check switched off the line reads
+`switched off in this image - no balancing needed`, and nothing is written there.
 
 If instead you see **`REFUSED`**, your firmware version is not supported (or the file is not the code partition, or it is already patched — the message says which). **Stop.** The script deliberately refuses to patch an image it doesn't recognise rather than corrupt it. Open an issue with the lines it printed.
 
@@ -59,6 +66,7 @@ guard @0x1ce96 ... OK
 guard @0x1ce8c ... OK
 @0x1cedc: 0xa819 -> 0xa810  (title sp+0x64 -> sp+0x40)
 ...(5 sites)...
+flash self-test: balancing word 0x07387044 @0xf0ffc - image adds up to 0
 Saved main_patched.bin
 ```
 
@@ -83,6 +91,7 @@ Confirm the patched image differs from your original **only** in the expected re
 - hook: file offset `0x1e6f6` (4 bytes)
 - cave: `0x7e240 … 0x7e367` (296 bytes)
 - renderer: 5 single-byte sites in `0x17edd … 0x17f4b`
+- flash self-test balancing word: file offset `0xebffc` (4 bytes; absent on an image with the check switched off)
 
 Any change **outside** those regions means something went wrong — do not flash.
 
@@ -90,6 +99,9 @@ Any change **outside** those regions means something went wrong — do not flash
 # quick diff of changed byte offsets (Git Bash / Linux / macOS)
 cmp -l main.bin main_patched.bin
 ```
+
+`python tools/emulate.py --dump main_patched.bin` runs the patch and the cluster's own flash check
+in an emulator; every line, including `FLASH`, must say `PASS`.
 
 ## Step 6 — Flash
 
@@ -103,4 +115,5 @@ Flash `main_patched.vbf` with your usual tool. Afterwards:
 
 - **Cluster won't boot / black screen:** flash your **original** firmware VBF back. This is why Step 0 exists.
 - **Deep brick (no bootloader response):** recovery typically needs JTAG/BDM hardware. See the "recover bricked Convers+" threads on the microhacker forum.
+- **DTC U3000 in the cluster / "ACC not available" after flashing:** the image was patched with tools from before 2026-10-12 and fails the cluster's flash check. Run `python tools/apply_render.py main_patched.bin main_fixed.bin`, repack (Step 4) and flash again.
 - **Titles still blank after a good flash:** confirm the source is really Bluetooth (`4B1`), and that your firmware version matches the one this patch targets (Step 2 would have warned otherwise).

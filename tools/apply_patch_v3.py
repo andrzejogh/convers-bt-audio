@@ -12,6 +12,10 @@ The firmware version is recognised from the image bytes (see fw_versions.py); an
 does not match exactly one supported version is refused before anything is written.
 --version only restricts the check to that entry - it never makes an unknown image acceptable.
 
+The last step balances the firmware's flash self-test (fw_versions.balance): one word of linker
+fill is set so that the patched image adds up to 0, as the factory image does. Without it the
+cluster stores DTC U3000 and a car with adaptive cruise control reports "ACC not available".
+
 --canid retargets the filtered CAN ID (default 0x4B1). EXPERIMENTAL - some head units
 broadcast Bluetooth metadata on a different ID; see docs/TESTING.md. It only works for IDs
 the cluster already accepts into a mailbox; other IDs need a mailbox reconfiguration.
@@ -211,7 +215,11 @@ def patch(data, canid=CANID_DEFAULT, version=None, log=print):
     ho = c["HOOK"] - FV.BASE
     d[ho:ho + 4] = FV.ebl(c["HOOK"], c["CAVE"])
     d[co:co + len(cave)] = cave
-    return bytes(d), v
+    try:
+        out = FV.balance(data, d, c, log)       # keep the firmware's flash self-test passing
+    except ValueError as e:
+        raise Refused(str(e))
+    return out, v
 
 
 def parse_args(argv):

@@ -12,6 +12,15 @@ The Convers+ cluster (MCU: NXP **MAC7116**) shows track metadata for USB and CD 
 
 > **Confirmed on two cars:** Ford **Mondeo MK4 facelift (FL), 2011+** — Convers+ cluster, firmware **1412-FL** (`CS7T-14C026-CD`); and a Ford **S-Max**, firmware **1412** (`CS7T-10849-VE`), independently verified on the vehicle by [@wojtkowiak](https://github.com/wojtkowiak) ([#1](../../issues/1)). Firmware **15.07** (`CS7T-14C026-CG`) is also confirmed, on the same Mondeo. Other cars/versions that use the same Convers+ cluster may work, but are currently **unverified** (see [Compatibility](#compatibility)).
 
+> ⚠️ **Patched a stock image with the tools from before 2026-10-12? Rebuild and flash again.**
+> The cluster checks its own flash in the background, and the older tools left that check failing
+> on a factory 14.12 / 15.07 image: the cluster stores DTC **U3000** and, on cars with adaptive
+> cruise control, the car reports **"ACC not available"** a few seconds after start. The tools now
+> balance the image as their last step. To fix an image you already have, run
+> `python tools/apply_render.py patched.bin fixed.bin`, repack and flash — or simply patch your
+> original dump again. `python tools/emulate.py --dump patched.bin` tells you whether an image is
+> affected (line `FLASH`). Details: [HOW_IT_WORKS.md §15](docs/HOW_IT_WORKS.md).
+
 ![Convers+ BT Audio screen showing live Bluetooth track title and artist](docs/images/bt-audio-demo.jpg)
 
 *Patched cluster on a Ford Mondeo MK4 FL — the BT Audio screen now shows the live track title ("Stars Will Align") and artist ("Kygo, Imagine Dragons") streamed over Bluetooth.*
@@ -52,8 +61,9 @@ If you have a different firmware version and the scripts abort, please open an i
 `tools/check_all.py` was run over the complete set of Convers+ firmware we have — 47 VBFs
 (Mondeo, S-Max, Transit, pre-facelift and 2007–2010 clusters) plus the dump of the confirmed car.
 For every application image it identifies the version, builds the patch in memory, checks that
-nothing outside the hook, the cave and the five renderer sites changes, checks that the two
-scripts give the same result in either order, repacks the VBF, and runs the emulator A/B.
+nothing outside the hook, the cave, the five renderer sites and the flash self-test balancing word
+changes, checks that the two scripts give the same result in either order, checks that the image
+still passes the firmware's flash self-test, repacks the VBF, and runs the emulator A/B.
 
 | Firmware (banner) | Image | Result |
 |---|---|---|
