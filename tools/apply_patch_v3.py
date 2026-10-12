@@ -215,6 +215,19 @@ def patch(data, canid=CANID_DEFAULT, version=None, log=print):
     ho = c["HOOK"] - FV.BASE
     d[ho:ho + 4] = FV.ebl(c["HOOK"], c["CAVE"])
     d[co:co + len(cave)] = cave
+    if "GUARD_LITS" in c:
+        # the scratch lives below the stack-guard band: move the band's lower bound above it
+        old, new = struct.pack(">I", c["GUARD_OLD"]), struct.pack(">I", c["GUARD_NEW"])
+        n = bytes(data[:co]).count(old)
+        if n != len(c["GUARD_LITS"]):
+            raise Refused(f"stack-guard bound {c['GUARD_OLD']:#x} occurs {n} times in the firmware, "
+                          f"expected {len(c['GUARD_LITS'])}")
+        if not (c["GUARD_OLD"] <= c["BUF"] and c["BUF"] + c["SCRATCH_SIZE"] <= c["GUARD_NEW"]):
+            raise Refused("scratch is not inside the memory taken from the stack-guard band")
+        for a in c["GUARD_LITS"]:
+            d[a - FV.BASE:a - FV.BASE + 4] = new
+        log(f"stack-guard band bound {c['GUARD_OLD']:#x} -> {c['GUARD_NEW']:#x} "
+            f"(3 literals) - the scratch gets memory of its own")
     try:
         out = FV.balance(data, d, c, log)       # keep the firmware's flash self-test passing
     except ValueError as e:

@@ -18,19 +18,28 @@ Rules this table follows
   wrong. The data anchors (PERBUS, DLIST, SRAM literals) are what refuses it.
 * The SRAM scratch is not a free-memory guess. There is no unused run in .bss, and "no write seen
   in an emulator run" is not proof (firmware state machines write some structures only on certain
-  screens). The scratch sits at the same place in every version: +0x22 into the stock 500-byte
-  media-message buffer (the buffer the stock ISO-TP media path fills before calling the media
-  dispatcher). That is the placement proven on the car with 14.12. It is SHARED memory, not free
-  memory: a stock media message arriving in the middle of a 0x4B1 reassembly can spoil our partial
-  title (the next 0x4B1 update repairs it), and in the emulator the cave's SBUS (written on every
-  received CAN frame, at buffer +0x42/+0x43) also overwrites bytes 66-67 of a stock 0x4C1 message
-  longer than 67 bytes while it is being received (e.g. a CD track list page). That second effect
-  has not been observed on a car; it is kept here so nobody mistakes this placement for "free".
+  screens).
+  14.12 keeps the placement proven on the car: +0x22 into the stock 500-byte media-message buffer
+  (the buffer the stock ISO-TP media path fills before calling the media dispatcher). It is SHARED
+  memory, not free memory: a stock media message arriving in the middle of a 0x4B1 reassembly can
+  spoil our partial title (the next 0x4B1 update repairs it), and the cave's SBUS (written on every
+  received CAN frame, at buffer +0x42/+0x43) overwrites bytes 66-67 of a stock 0x4C1 message
+  longer than 67 bytes while it is being received (a CD / MP3 track-list page).
     14.12: buffer struct 0x400092D2, text at +0xC = 0x400092DE  ->  BUF 0x40009300
-    15.07: buffer struct 0x400092F2, text at +0xC = 0x400092FE  ->  BUF 0x40009320
+  15.07 no longer uses the media buffer. The second effect is real there: in the emulator, with a
+  0x4C1 list page recorded from a car's radio (165 B), the cluster's CD / MP3 track list came back
+  with one garbage entry and the last entry lost, while stock showed the page intact. 15.07
+  therefore keeps its 34 B in memory of its own, carved from the bottom of the stack-guard band:
+  startup zeroes .bss up to the band's lower bound and paints the band 0x4000B038..0x4000B7EF
+  with 0xEFEFEFEF, which a checker verifies. Moving the bound up (the three literal words in
+  GUARD_LITS) hands the bytes below it to the patch - zeroed on every reset like .bss, referenced
+  by no stock code, and the checker still covers the remaining 1.7 KB of the band.
+    15.07: bound 0x4000B038 -> 0x4000B100, BUF 0x4000B0D8
+  This is the placement that has run on the car (0x4000B038..0x4000B0D7 below it is left unused,
+  simply zeroed). 14.12 has the same mechanism (bound 0x4000B008) and can follow once somebody
+  has driven it; until then its default build stays byte-identical to the car-proven image.
   (The earlier 15.07 port by @wojtkowiak used 0x40009880, chosen from the SRAM writes measured in
-  the emulator. We derive the scratch differently - by the media-buffer offset proven on the car
-  with 14.12 - so the two ports differ only in this address.)
+  the emulator; the first release here used 0x40009320, the 14.12 media-buffer offset.)
 
 Flash self-test
 ---------------
@@ -122,7 +131,10 @@ VERSIONS = {
         DLIST=0x8F698,
         SABC=0x40009ADC,
         STORE=0x4000A6D8,
-        BUF=0x40009320,        # = 14.12 placement, the media buffer moved by +0x20
+        BUF=0x4000B0D8,        # own memory below the stack-guard band - see the module docstring
+        BUF_OLD=0x40009320,    # first release: inside the media buffer (still recognised)
+        GUARD_LITS=(0x54E0, 0x54E4, 0x152FC),   # .bss clear end, band painter start, band checker
+        GUARD_OLD=0x4000B038, GUARD_NEW=0x4000B100,
         RENDERER=0x1CF26,
         STATUS=0x40007424,
         ACCEPT=0x79AA2,
@@ -294,10 +306,20 @@ def probe(data, version):
         "stock" if all(b == c["CAVE_FILL"] for b in cave) else "patched")
     add("cave", cave_state is not None and cave_state == (hook_state or cave_state),
         f"{cave_state} (hook {hook_state})")
+    guard_state = "n/a"
+    if "GUARD_LITS" in c:
+        # stack-guard band bound: stock, or moved by the patch. A patched image with the stock
+        # bound is a build of the first release (scratch in the media buffer) - still accepted.
+        vals = {at(data, a, 4) for a in c["GUARD_LITS"]}
+        guard_state = ("stock" if vals == {struct.pack(">I", c["GUARD_OLD"])}
+                       else "moved" if vals == {struct.pack(">I", c["GUARD_NEW"])} else None)
+        add("guard band", guard_state is not None and not (guard_state == "moved" and hook_state == "stock"),
+            f"{guard_state or 'unknown'}")
 
     if not all(ok for _, ok, _ in chk):
         return chk, None
-    return chk, {"cave": hook_state, "render": rend_state}
+    return chk, {"cave": hook_state, "render": rend_state,
+                 "old_scratch": hook_state == "patched" and guard_state == "stock"}
 
 
 def identify(data):

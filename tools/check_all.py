@@ -81,6 +81,7 @@ def allowed_ranges(c, cave_len):
     r = [(c["HOOK"], 4), (c["CAVE"], cave_len)]
     r += [(a, 2) for a in c["RENDER_SITES"]]
     r += [(c["SUM_WORD"], 4)]                       # flash self-test balancing word
+    r += [(a, 4) for a in c.get("GUARD_LITS", ())]  # stack-guard band bound (scratch memory)
     return [(a - FV.BASE, a - FV.BASE + n) for a, n in r]
 
 
@@ -104,7 +105,9 @@ def check_image(it, canid, emulate, out_dir, verbose):
         if state["cave"] == "patched":
             row["status"] = "PATCHED-INPUT"
             patched = data
-            steps.append("input already patched")
+            steps.append("input already patched" + (
+                " (first-release build: scratch in the media buffer - rebuild from the original "
+                "dump for the CD track-list fix)" if state.get("old_scratch") else ""))
         else:
             p1, _ = apply_patch_v3.patch(data, canid, log=log)
             patched, _, _ = apply_render.patch(p1, log=log)

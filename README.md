@@ -207,9 +207,8 @@ Issues and PRs welcome — especially ports to other firmware versions (please i
   [convers-gauge-sweep](https://github.com/andrzejogh/convers-gauge-sweep) project — thanks!
   Thanks also for sharing a full cluster emulator, and for preparing the first port of this
   patch to firmware **15.07**. The 15.07 support released here builds on that work; the one
-  difference is the SRAM scratch: that port uses `0x40009880`, while we decided to derive the
-  location differently and keep the offset inside the stock media-message buffer that is proven
-  on the car with 14.12, which gives `0x40009320` on 15.07 (see
+  difference is the SRAM scratch: that port uses `0x40009880`; here 15.07 keeps its 34 bytes in
+  memory taken from the bottom of the stack-guard band (see
   [HOW_IT_WORKS.md §14](docs/HOW_IT_WORKS.md#14-other-firmware-versions)).
 - **[@sccsltd](https://github.com/sccsltd)** — for sharing firmware images used to test the patch
   across versions.

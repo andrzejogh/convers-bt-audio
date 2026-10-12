@@ -161,7 +161,7 @@ the 14.12 code byte for byte, but its data tables are elsewhere, so it is refuse
 | cave | `0x83240` (zero run) | `0xdde00` (inside the `0xEF` linker fill `0xd7d78..0xffff8`) |
 | PERBUS / field-handler list | `0x7a0d4` / `0x8eff0` | `0x7a730` / `0x8f698` |
 | handler-select / BT store | `0x40009abc` / `0x4000a6b4` | `0x40009adc` / `0x4000a6d8` |
-| **cave scratch** | `0x40009300` | **`0x40009320`** |
+| **cave scratch** | `0x40009300` (in the media buffer) | **`0x4000B0D8`** (own memory; stack-guard bound `0x4000B038` → `0x4000B100`, literals at `0x54E0`, `0x54E4`, `0x152FC`) |
 | BT Audio renderer | `0x1ce94` | `0x1cf26` |
 | acceptance table | `0x79446` | `0x79aa2` |
 
@@ -173,17 +173,34 @@ values, which map onto the table above.
 never writes to an address does not prove the address is free — some firmware state machines
 write only on particular screens. The earlier 15.07 port by
 [@wojtkowiak](https://github.com/wojtkowiak) placed the scratch at `0x40009880`, chosen from the
-SRAM writes measured in the emulator. We decided to derive the location differently: rather than
-look for an address that appears unused, the released tables keep the placement that is proven on
-the car with 14.12 — the same offset inside the stock media-message buffer, which in 15.07 sits at `0x400092F2`
-(everything in that area moved by +0x20). It is still shared memory, with two effects:
-a stock media message arriving in the middle of a `0x4B1` reassembly can spoil *our* partial
-text (the next `0x4B1` update repairs it); and, seen in the emulator only, `SBUS` — written on
-every received CAN frame at buffer `+0x42`/`+0x43` — overwrites bytes 66–67 of a stock `0x4C1`
-message longer than 67 bytes while it is being received (e.g. a CD track list page). The second
-effect has **not** been observed on a car (Bluetooth and USB are not affected: USB uses another
-buffer). Keeping `SBUS` in a register instead of SRAM would remove it. The heap/stack-guard area above `.bss` is not free
-either: the firmware paints it and periodically checks it (stack-overflow detector at `0x15252`).
+SRAM writes measured in the emulator. The first 15.07 release here used `0x40009320` instead: the
+placement proven on the car with 14.12, the same offset inside the stock media-message buffer
+(`0x400092F2` in 15.07, everything in that area moved by +0x20).
+
+That buffer is shared memory, with two effects: a stock media message arriving in the middle of a
+`0x4B1` reassembly can spoil *our* partial text (the next `0x4B1` update repairs it); and `SBUS` —
+written on every received CAN frame at buffer `+0x42`/`+0x43` — overwrites bytes 66–67 of a stock
+`0x4C1` message longer than 67 bytes while it is being received. The second one turned out to
+matter: in the emulator, with a 165-byte `0x4C1` track-list page recorded from a car's radio, the
+cluster's CD / MP3 track list came back with one garbage entry and the last entry lost, while
+stock showed the page intact. (Bluetooth and USB are not affected: USB uses another buffer.)
+
+**15.07 now has memory of its own.** The area above `.bss` is the stack-guard band: startup clears
+`.bss` up to the band's lower bound and paints the band `0x4000B038..0x4000B7EF` with
+`0xEFEFEFEF`, and a checker (stack-overflow detector, `0x15252`) verifies it. The bound exists as
+exactly three literal words (`0x54E0` end of the `.bss` clear, `0x54E4` start of the painter,
+`0x152FC` the checker). `apply_patch_v3.py` moves it from `0x4000B038` to `0x4000B100` and puts
+the 34-byte scratch at `0x4000B0D8`: zeroed on every reset like `.bss`, referenced by no stock
+code, and the checker still guards the remaining 1.7 KB. This placement has been driven on the
+car (500 km, CD and Bluetooth). The bytes `0x4000B038..0x4000B0D7` below it stay unused.
+
+**14.12 is unchanged** — its scratch is still in the media buffer, so the track-list effect above
+applies there in principle (it has not been noticed on the cars). The same mechanism exists in
+14.12 (bound `0x4000B008`, same three literal addresses), but it has not been driven, and the
+default 14.12 build is kept byte-identical to the image flashed on the cars.
+
+An image built by the first 15.07 release is still recognised (`emulate.py` and `check_all.py`
+say so); to get the fix, patch your original dump again.
 
 To add a version: measure every field of a `fw_versions.py` entry on the new image (check the
 scratch statically: which code references the buffer and how far its structures extend), then

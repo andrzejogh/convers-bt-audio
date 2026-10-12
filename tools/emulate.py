@@ -276,6 +276,8 @@ def revert_to_stock(data, c):
     for addr in c["RENDER_SITES"]:
         if FV.u16(d, addr) == RENDER_NEW:
             d[addr - BASE:addr - BASE + 2] = struct.pack(">H", RENDER_OLD)
+    for addr in c.get("GUARD_LITS", ()):
+        d[addr - BASE:addr - BASE + 4] = struct.pack(">I", c["GUARD_OLD"])
     return bytes(d)
 
 
@@ -401,6 +403,12 @@ def selftest(data, canid=0x4B1, title="PATCH TEST", artist="CANBUS", trace=False
     else:  # patched dump (e.g. read back from a flashed cluster)
         log("  This dump already contains the patch (e.g. dumped from a flashed cluster).")
         log(f"    renderer (19-char) patch: {'present' if state['render'] == 'patched' else 'NOT FOUND'}")
+        if state.get("old_scratch"):
+            log("    NOTE: built by the first release - its working memory sits inside the radio's")
+            log("    media buffer and can spoil a CD / MP3 track-list page. Patch your ORIGINAL dump")
+            log("    again with the current tools to get the fix.")
+            c = dict(c, BUF=c["BUF_OLD"], SLEN=c["BUF_OLD"] + 0x18, SIDX=c["BUF_OLD"] + 0x19,
+                     SBUS=c["BUF_OLD"] + 0x20)
         log("  Testing exactly what is flashed, and reconstructing the stock bytes in memory")
         log("  for the before/after comparison:")
         patched_img = bytes(data)
